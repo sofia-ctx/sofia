@@ -47,7 +47,7 @@ func TestStdioProtocolRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to `sf mcp` over stdio (initialize failed): %v", err)
 	}
-	defer cs.Close()
+	defer func() { _ = cs.Close() }()
 
 	tools, err := cs.ListTools(ctx, nil)
 	if err != nil {

@@ -45,11 +45,11 @@ func openText(path string) (*os.File, error) {
 	buf := make([]byte, peekSize)
 	n, _ := io.ReadFull(f, buf)
 	if bytes.IndexByte(buf[:n], 0) >= 0 {
-		f.Close()
+		_ = f.Close()
 		return nil, ErrSkip
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	return f, nil
@@ -109,7 +109,7 @@ func scanFileLiteral(path string, opts Options) ([]Hit, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
@@ -191,7 +191,7 @@ func scanFileRegex(path string, opts Options) ([]Hit, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)

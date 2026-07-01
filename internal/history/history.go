@@ -187,7 +187,7 @@ func readEntries(f Filter) ([]calllog.Entry, error) {
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	sc := bufio.NewScanner(file)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
 
