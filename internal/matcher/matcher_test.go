@@ -200,16 +200,16 @@ func TestScanFile_RegexInvalid(t *testing.T) {
 
 func TestWordBoundaryViolated(t *testing.T) {
 	cases := []struct {
-		s         string
-		start     int
-		length    int
-		violated  bool
+		s        string
+		start    int
+		length   int
+		violated bool
 	}{
-		{"abc", 0, 3, false},        // both edges
-		{"abc def", 0, 3, false},    // space after
-		{"abc def", 4, 3, false},    // space before
-		{"abcdef", 0, 3, true},      // word char after
-		{"xabc", 1, 3, true},        // word char before
+		{"abc", 0, 3, false},     // both edges
+		{"abc def", 0, 3, false}, // space after
+		{"abc def", 4, 3, false}, // space before
+		{"abcdef", 0, 3, true},   // word char after
+		{"xabc", 1, 3, true},     // word char before
 		{"технология X", 0, len("технология"), false},
 		{"yтехнология", len("y"), len("технология"), true}, // ASCII before
 	}

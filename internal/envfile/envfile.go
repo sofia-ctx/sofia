@@ -17,18 +17,18 @@ import (
 // Field describes a single environment variable a tool needs.
 type Field struct {
 	Key         string
-	Prompt      string                // shown to user when interactive
-	Description string                // short help shown above the prompt
-	Default     string                // used silently if no value found anywhere
-	Required    bool                  // missing required → prompt (or error if non-TTY)
-	Validator   func(string) error    // returns error if value is invalid
+	Prompt      string             // shown to user when interactive
+	Description string             // short help shown above the prompt
+	Default     string             // used silently if no value found anywhere
+	Required    bool               // missing required → prompt (or error if non-TTY)
+	Validator   func(string) error // returns error if value is invalid
 }
 
 // Resolve fetches values for every Field in priority order:
-//   1. existing entry in path
-//   2. process environment ($KEY)
-//   3. Default (silent fallback)
-//   4. interactive prompt (Required only) — saved back to path
+//  1. existing entry in path
+//  2. process environment ($KEY)
+//  3. Default (silent fallback)
+//  4. interactive prompt (Required only) — saved back to path
 //
 // All resolved values are returned. Stdin must be a TTY when prompting is
 // needed; otherwise an error is returned listing the missing keys.
