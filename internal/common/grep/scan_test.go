@@ -1,0 +1,203 @@
+package grep
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// scaffoldTree builds a tiny project tree for grep integration tests.
+//
+//	root/
+//	├── src/UserService.php  — function deleteUser containing target
+//	├── src/other.php        — also contains target, in plain top-level code
+//	├── vendor/skip.php      — should be ignored by default
+//	└── notes.txt            — wrong extension if --ext=php
+func scaffoldTree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	mk := func(rel, content string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("src/UserService.php", "<?php\nclass UserService {\n  public function deleteUser() {\n    if ($status === TARGET) {\n      return;\n    }\n  }\n}\n")
+	mk("src/other.php", "<?php\n// note: TARGET\n")
+	mk("vendor/skip.php", "<?php\n// TARGET here too but vendor is ignored\n")
+	mk("notes.txt", "TARGET is in a text file\n")
+	return root
+}
+
+func TestRun_LiteralPHPOnly(t *testing.T) {
+	root := scaffoldTree(t)
+	var buf bytes.Buffer
+	err := Run(Options{
+		Root:          root,
+		Patterns:      []string{"TARGET"},
+		Format:        "toon",
+		CaseSensitive: true,
+		WordBound:     true,
+		Exts:          []string{"php"},
+	}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "src/UserService.php,4") {
+		t.Errorf("expected UserService.php:4 hit, got:\n%s", out)
+	}
+	if !strings.Contains(out, "src/other.php,2") {
+		t.Errorf("expected other.php:2 hit, got:\n%s", out)
+	}
+	if strings.Contains(out, "vendor/skip.php") {
+		t.Errorf("vendor/ should be ignored by default, got:\n%s", out)
+	}
+	if strings.Contains(out, "notes.txt") {
+		t.Errorf("notes.txt should be excluded by --ext=php, got:\n%s", out)
+	}
+	if !strings.Contains(out, "function deleteUser") {
+		t.Errorf("expected enclosing context, got:\n%s", out)
+	}
+}
+
+func TestRun_RegexCaseInsensitive(t *testing.T) {
+	root := scaffoldTree(t)
+	var buf bytes.Buffer
+	err := Run(Options{
+		Root:          root,
+		Patterns:      []string{`target`},
+		Format:        "toon",
+		CaseSensitive: false,
+		Regex:         true,
+		Exts:          []string{"php"},
+	}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "UserService.php") || !strings.Contains(out, "other.php") {
+		t.Errorf("expected case-insensitive regex to find both files, got:\n%s", out)
+	}
+}
+
+func TestRun_ExtraIgnoreDir(t *testing.T) {
+	root := scaffoldTree(t)
+	var buf bytes.Buffer
+	err := Run(Options{
+		Root:          root,
+		Patterns:      []string{"TARGET"},
+		Format:        "toon",
+		CaseSensitive: true,
+		WordBound:     true,
+		Exts:          []string{"php"},
+		ExtraIgnore:   []string{"src"},
+	}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "src/") {
+		t.Errorf("--ignore-dir=src should drop src/ hits, got:\n%s", out)
+	}
+	if !strings.Contains(out, "empty[1]") {
+		t.Errorf("expected empty marker, got:\n%s", out)
+	}
+}
+
+func TestRun_EmptyPatternsErrors(t *testing.T) {
+	err := Run(Options{Root: t.TempDir(), Format: "toon"}, &bytes.Buffer{})
+	if err == nil {
+		t.Error("expected error with no patterns")
+	}
+}
+
+func TestRun_InvalidRegex(t *testing.T) {
+	root := scaffoldTree(t)
+	err := Run(Options{
+		Root:     root,
+		Patterns: []string{"[invalid"},
+		Format:   "toon",
+		Regex:    true,
+		Exts:     []string{"php"},
+	}, &bytes.Buffer{})
+	if err == nil {
+		t.Error("expected regex compile error")
+	}
+}
+
+// TestNewCommand_WordDefaultsOff locks the fix for "sf grep returns empty
+// for Cyrillic": the CLI defaults to substring matching (grep-style), so a
+// Russian stem hits inside its inflected forms. --word is opt-in.
+func TestNewCommand_WordDefaultsOff(t *testing.T) {
+	cmd := NewCommand()
+	f := cmd.Flags().Lookup("word")
+	if f == nil {
+		t.Fatal("expected --word flag")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--word default = %q, want \"false\" (substring is the default)", f.DefValue)
+	}
+}
+
+// TestRun_CyrillicStemSubstring is the end-to-end regression for the bug:
+// with WordBound off (the new default) a stem matches inside an inflected
+// Cyrillic word, where whole-word matching returned empty.
+func TestRun_CyrillicStemSubstring(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "doc.md"), []byte("технологии обнаружения\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Run(Options{
+		Root:     root,
+		Patterns: []string{"технолог"},
+		Format:   "toon",
+		// WordBound omitted → false, the CLI default.
+	}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "doc.md,1") {
+		t.Errorf("expected Cyrillic stem hit in doc.md, got:\n%s", out)
+	}
+}
+
+// TestNewCommand_MaxPerPatternDefault30 locks the P0-4 token-tail fix: the CLI
+// caps hits per pattern at 30 by default (broad patterns like "public function"
+// otherwise dumped hundreds of context-rich hits). 0 stays the unlimited escape.
+func TestNewCommand_MaxPerPatternDefault30(t *testing.T) {
+	cmd := NewCommand()
+	f := cmd.Flags().Lookup("max-per-pattern")
+	if f == nil {
+		t.Fatal("expected --max-per-pattern flag")
+	}
+	if f.DefValue != "30" {
+		t.Errorf("--max-per-pattern default = %q, want \"30\"", f.DefValue)
+	}
+}
+
+func TestRun_MaxPerPattern(t *testing.T) {
+	root := scaffoldTree(t)
+	var buf bytes.Buffer
+	err := Run(Options{
+		Root:          root,
+		Patterns:      []string{"TARGET"},
+		Format:        "toon",
+		CaseSensitive: true,
+		WordBound:     true,
+		Exts:          []string{"php"},
+		MaxPerPattern: 1,
+	}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "+1 more truncated") {
+		t.Errorf("expected truncation marker, got:\n%s", out)
+	}
+}

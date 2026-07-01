@@ -1,0 +1,50 @@
+version: 2
+
+project_name: sf
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: sf
+    main: ./cmd/sf
+    binary: sf
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/sofia-ctx/sofia/internal/version.Version={{ .Version }}
+
+archives:
+  - id: sf
+    ids: [sf]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: sofia-ctx
+    name: sofia
+
+# Homebrew tap — forward-prep only. sofia-ctx/homebrew-tap doesn't exist yet
+# (the org was created 2026-07-01 for the public release); this block will
+# start working once that repo exists and HOMEBREW_TAP_GITHUB_TOKEN is set.
+homebrew_casks:
+  - name: sf
+    ids: [sf]
+    binaries: [sf]
+    repository:
+      owner: sofia-ctx
+      name: homebrew-tap
+    homepage: "https://github.com/sofia-ctx/sofia"
+    description: "Structural code context for LLM coding agents — the sf CLI"
