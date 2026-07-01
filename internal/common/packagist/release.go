@@ -207,7 +207,7 @@ func updatePackage(username, token, repoURL string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("packagist update-package: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(out)))

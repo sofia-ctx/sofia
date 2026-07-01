@@ -137,7 +137,7 @@ func writeLog(t *testing.T, dir string, entries ...calllog.Entry) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
 	for _, e := range entries {
 		if err := enc.Encode(e); err != nil {

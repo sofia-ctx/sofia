@@ -264,7 +264,7 @@ func doP2Request(ctx context.Context, name string) (string, bool, error) {
 	if err != nil {
 		return "", true, err // network/timeout — transient
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return "", false, nil

@@ -162,7 +162,7 @@ func appendEntry(e Entry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(e)
@@ -181,7 +181,7 @@ func Read() ([]Entry, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	var out []Entry

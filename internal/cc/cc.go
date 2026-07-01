@@ -407,7 +407,7 @@ func Parse(path string, collectDetail bool) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	s := &Session{
 		Path:             path,
