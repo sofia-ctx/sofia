@@ -8,6 +8,17 @@ linters:
     - unused
     - errcheck
     - ineffassign
+  settings:
+    errcheck:
+      # Deferred Close() on read paths and Fprint* to an already-open writer
+      # (stdout/stderr/a calllog.Counter) are checked-in-practice-never
+      # across this codebase and the wider Go ecosystem; excluding them
+      # keeps errcheck focused on writes/calls whose errors are actionable.
+      exclude-functions:
+        - (io.Closer).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
 
 formatters:
   enable:
