@@ -36,15 +36,18 @@ release:
     owner: sofia-ctx
     name: sofia
 
-# Homebrew tap — forward-prep only. sofia-ctx/homebrew-tap doesn't exist yet
-# (the org was created 2026-07-01 for the public release); this block will
-# start working once that repo exists and HOMEBREW_TAP_GITHUB_TOKEN is set.
-homebrew_casks:
-  - name: sf
-    ids: [sf]
-    binaries: [sf]
-    repository:
-      owner: sofia-ctx
-      name: homebrew-tap
-    homepage: "https://github.com/sofia-ctx/sofia"
-    description: "Structural code context for LLM coding agents — the sf CLI"
+# Homebrew tap is intentionally not wired up yet: it needs a
+# sofia-ctx/homebrew-tap repo (not created — that's a separate, deliberate
+# step, not something to spin up automatically off a build) plus a
+# HOMEBREW_TAP_GITHUB_TOKEN secret. Re-add a homebrew_casks block pointing at
+# it once both exist:
+#
+# homebrew_casks:
+#   - name: sf
+#     ids: [sf]
+#     binaries: [sf]
+#     repository:
+#       owner: sofia-ctx
+#       name: homebrew-tap
+#     homepage: "https://github.com/sofia-ctx/sofia"
+#     description: "Structural code context for LLM coding agents — the sf CLI"
