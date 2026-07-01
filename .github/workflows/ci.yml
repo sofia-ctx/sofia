@@ -42,11 +42,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          # Pinned rather than "latest": that resolved to a v1.x binary in
-          # both binary and goinstall mode, which can't parse this repo's v2
-          # .golangci.yml schema (and the v1.x binary release predates go1.25,
-          # which golangci-lint itself then refuses to lint). v2.12.2 is a
-          # current v2 release built with a compatible toolchain.
+          # v6 of this action can't drive golangci-lint v2 at all. Pinned
+          # rather than "latest": that resolved to a v1.x binary, which can't
+          # parse this repo's v2 .golangci.yml schema (and predates go1.25,
+          # which golangci-lint itself then refuses to lint).
           version: v2.12.2
