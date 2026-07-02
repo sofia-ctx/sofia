@@ -25,7 +25,8 @@ import (
 
 type codeInput struct {
 	Files    []string `json:"files" jsonschema:"source files to summarise structurally (.go/.php/.ts/.tsx/.vue); pass several to summarise together"`
-	Symbol   string   `json:"symbol,omitempty" jsonschema:"with exactly one file, slice this symbol's full source (func/type/const/var, or Recv.Method / Class::method) instead of summarising the file (Go/PHP only)"`
+	Symbol   string   `json:"symbol,omitempty" jsonschema:"with exactly one file, slice this symbol's full source (func/type/const/var, or Recv.Method / Class::method) instead of summarising the file (Go/PHP only); for more than one, use symbols instead"`
+	Symbols  []string `json:"symbols,omitempty" jsonschema:"with exactly one file, slice these symbols' full source in one call instead of summarising the file (Go/PHP only); a symbol that isn't found doesn't fail the call, it's just noted as missing"`
 	Exported bool     `json:"exported,omitempty" jsonschema:"show only exported/public symbols"`
 	API      bool     `json:"api,omitempty" jsonschema:"PHP: effective public surface (own + trait + inherited methods); implies exported"`
 }
@@ -121,13 +122,17 @@ type vueRoutesInput struct {
 func registerTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "code",
-		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one symbol's full source. JSON payload. Batch several files into ONE call — one call per file wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips.",
+		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one or more symbols' full source in one call. JSON payload. Batch several files (or several symbols) into ONE call — one call per file/symbol wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips.",
 		Annotations: annotations(false),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in codeInput) (*mcp.CallToolResult, any, error) {
+		symbols := in.Symbols
+		if in.Symbol != "" {
+			symbols = append([]string{in.Symbol}, symbols...)
+		}
 		var buf bytes.Buffer
 		if err := code.Run(code.Options{
 			Inputs:       in.Files,
-			Symbol:       in.Symbol,
+			Symbols:      symbols,
 			ExportedOnly: in.Exported,
 			API:          in.API,
 			Format:       jsonFormat,

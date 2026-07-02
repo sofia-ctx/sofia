@@ -96,10 +96,12 @@ pure-Go TS parser).
 libraries under `internal/common/code/{gocode,phpcode,tscode}` (each tested
 in isolation), runs multiple files **in parallel**, and aggregates the
 result. Pass a list of files: `sf code a.go b.php api/types.ts`. Or
-`<file> <symbol>` for a **single-symbol slice** (the source of one
-function/method/type; Go and PHP). Invariant: **compact-or-raw** — if a file
-can't be parsed, or the summary isn't shorter, the full file is returned
-(== `cat`), never an error, so `sf code` is safe to run on anything.
+`<file> <symbol...>` to **slice** one or more symbols (the source of each
+function/method/type; Go and PHP) instead of the whole file — a symbol that
+isn't found doesn't fail the others, it's just noted as missing. Invariant:
+**compact-or-raw** — if a file can't be parsed, or the summary isn't
+shorter, the full file is returned (== `cat`), never an error, so `sf code`
+is safe to run on anything.
 
 **`--api`** (PHP): the effective public surface of a class — its own methods
 plus methods from `use`-d traits (recursively) plus inherited ones from
@@ -116,6 +118,7 @@ sf code frontend/src/api/types.ts frontend/src/views/ProductsView.vue  # several
 sf code src/User/Entity/User.php --exported    # public API only
 sf code vendor/acme/lib/src/FluentThing.php --api  # the full surface: traits+inheritance
 sf code internal/server/server.go Server.Routes  # slice of a single method
+sf code internal/cc/cc.go Parse ingestEntry      # slice several symbols at once
 ```
 
 Measured: Go **6–23×**, PHP **2–20×** (`--api` over traits/inheritance

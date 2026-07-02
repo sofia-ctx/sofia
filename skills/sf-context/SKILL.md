@@ -15,7 +15,7 @@ the context window gets re-read from cache on every following turn.
 |---|---|---|
 | A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/TS/Vue; ~6–23×) |
 | Only the public surface | — | `sf code <file> --exported`; PHP with traits/parents — `--api` |
-| One function/method/type's body | re-reading the whole file | `sf code <file> <Symbol>` (or `<Type.Method>`) |
+| One function/method/type's body | re-reading the whole file | `sf code <file> <Sym1> [Sym2 …]` (one call, several bodies) |
 | Search across a tree | `rg -C` / `grep -rn` | `sf grep --ext=go,php '<pattern>'` (capped at 30 hits; `--regex`) |
 | What changed | full `git diff` | `sf changed [range]` (~48×) |
 | Resume work with a small context | re-reading everything from scratch | `sf cc resume [proj]` |
@@ -29,9 +29,15 @@ never one call per file. Every extra tool call costs a full round-trip over
 your whole context; batching is where the real savings are. This applies to
 `sf grep` too (multiple patterns in one call).
 
+The same goes for symbol bodies: `sf code file.go Run Finish Track` pulls
+several bodies in one call. And never re-request a structure or body you
+already fetched — earlier tool results are still in your context; look back
+instead of calling again.
+
 ## When `sf` is NOT needed
 - Files under ~150 lines (<~8 KB) and non-code (md/json/yaml/config) — a plain Read is cheaper than the structural detour.
-- You need 3+ symbol bodies from the same file, or a line-by-line read — one full Read beats pulling bodies one at a time.
+- The bodies you need cover most of the file — one full Read beats slicing it
+  piece by piece (batched or not).
 - `sf code` is safe on any supported file: the compact-or-raw invariant means
   a summary that isn't shorter, or a failed parse, returns the whole file —
   never an error.
