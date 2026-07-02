@@ -22,10 +22,16 @@ the context window gets re-read from cache on every following turn.
 
 `sf <cmd> --help` for flags; `--md`/`--json` for output format; `sf --help` for the full catalog.
 
+## Batching — one call, not one per file
+
+Several relevant files? **One call**: `sf code file1.go file2.go file3.go` —
+never one call per file. Every extra tool call costs a full round-trip over
+your whole context; batching is where the real savings are. This applies to
+`sf grep` too (multiple patterns in one call).
+
 ## When `sf` is NOT needed
-- Small files (<~100 lines) and non-code (md/json/yaml/config) — a plain Read is fine.
-- You need many function bodies at once, or a line-by-line read — read the
-  file (or pull several symbols one at a time via `sf code <file> <Symbol>`).
+- Files under ~150 lines (<~8 KB) and non-code (md/json/yaml/config) — a plain Read is cheaper than the structural detour.
+- You need 3+ symbol bodies from the same file, or a line-by-line read — one full Read beats pulling bodies one at a time.
 - `sf code` is safe on any supported file: the compact-or-raw invariant means
   a summary that isn't shorter, or a failed parse, returns the whole file —
   never an error.

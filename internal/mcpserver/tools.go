@@ -121,7 +121,7 @@ type vueRoutesInput struct {
 func registerTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "code",
-		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one symbol's full source. JSON payload.",
+		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one symbol's full source. JSON payload. Batch several files into ONE call — one call per file wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips.",
 		Annotations: annotations(false),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in codeInput) (*mcp.CallToolResult, any, error) {
 		var buf bytes.Buffer
@@ -139,7 +139,7 @@ func registerTools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "grep",
-		Description: "Search a project tree and report each hit with its enclosing function/class/block. Literal, whole-word, or regex. JSON payload.",
+		Description: "Search a project tree and report each hit with its enclosing function/class/block. Literal, whole-word, or regex. JSON payload. Use it to locate, then follow up with a single batched code call covering the files that matter.",
 		Annotations: annotations(false),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in grepInput) (*mcp.CallToolResult, any, error) {
 		opts := grep.Options{
