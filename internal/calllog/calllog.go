@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -124,6 +125,14 @@ func sessionID() string {
 func projectTag() string {
 	return firstNonEmpty(os.Getenv("SOFIA_TAG"), deriveProjectFromCwd())
 }
+
+// Source, SessionID and ProjectTag expose the same classification calllog
+// stamps onto its own entries, so a subprocess plugin can be handed identical
+// SOFIA_SOURCE / SOFIA_SESSION_ID / SOFIA_TAG values (see internal/plugin's
+// invocation env) without a parallel, drifting implementation.
+func Source() string     { return detectSource() }
+func SessionID() string  { return sessionID() }
+func ProjectTag() string { return projectTag() }
 
 // deriveProjectFromCwd returns the basename of the nearest ancestor holding a
 // .git entry (the repo root), else the basename of the cwd. It walks the tree
@@ -237,6 +246,13 @@ func (t *Tracker) SetOutputTokens(n int64) {
 	t.entry.OutputTokens = n
 }
 
+// SetExitCode records a specific process exit code. Finish otherwise collapses
+// any error to exit 1; a subprocess (plugin) that exited with its own non-zero
+// code calls SetExitCode first so the real code is logged. Set before Finish.
+func (t *Tracker) SetExitCode(code int) {
+	t.entry.ExitCode = code
+}
+
 // RecordOutput copies both byte and token accumulators from a Counter
 // in one call — the typical Run() epilogue.
 func (t *Tracker) RecordOutput(c *Counter) {
@@ -289,7 +305,12 @@ func (t *Tracker) Finish(err error) {
 	t.entry.DurationMs = time.Since(t.start).Milliseconds()
 	if err != nil {
 		t.entry.Error = err.Error()
-		t.entry.ExitCode = 1
+		// Don't clobber a specific exit code a caller already recorded via
+		// SetExitCode (e.g. a plugin subprocess that exited 3); only synthesize
+		// the generic failure code when none was set.
+		if t.entry.ExitCode == 0 {
+			t.entry.ExitCode = 1
+		}
 	}
 	_ = appendEntry(t.entry)
 }
@@ -308,6 +329,35 @@ func Track(tool string, args []string, fn func(t *Tracker) error) error {
 // enough for Finalize to tell whether a tool already logged itself.
 var pending *Tracker
 
+// pluginGroups holds the bare names of plugin command groups (`sf <plugin>`
+// with subcommands, which only print help). It is populated once at startup
+// from the plugin manifests (see RegisterPluginGroups) rather than hardcoded,
+// so skip() gates plugin groups the same way it gates `cc`/`gripe` without this
+// switch growing a case per plugin. Guarded by a mutex only because -race test
+// runs can touch it concurrently; production sets it before Execute.
+var (
+	pluginGroupsMu sync.RWMutex
+	pluginGroups   = map[string]bool{}
+)
+
+// RegisterPluginGroups records plugin group names that must be excluded from the
+// central call-log fallback (their bare invocation only prints help). Additive
+// and idempotent. The plugin subcommands themselves (`<plugin>.<command>`) still
+// log, since they do real work and self-log via Start/Finish.
+func RegisterPluginGroups(names []string) {
+	pluginGroupsMu.Lock()
+	defer pluginGroupsMu.Unlock()
+	for _, n := range names {
+		pluginGroups[n] = true
+	}
+}
+
+func isPluginGroup(tool string) bool {
+	pluginGroupsMu.RLock()
+	defer pluginGroupsMu.RUnlock()
+	return pluginGroups[tool]
+}
+
 // skip reports whether a tool name must never reach the log via the central
 // fallback: shell-completion plumbing (not token work), the history viewer
 // (it reads the very log it would pollute), and bare command groups that
@@ -317,6 +367,8 @@ var pending *Tracker
 // `gripe` is special: its record-mode self-logs via Start/Finish (which ignore
 // skip), so the gripe still lands; what skip suppresses is the *bare* `sf gripe`
 // list view, which is a reader like `history` and must not write a junk entry.
+// Plugin groups (`sf <plugin>` with subcommands) are suppressed the same way,
+// but driven by RegisterPluginGroups instead of a hardcoded case.
 func skip(tool string) bool {
 	if tool == "" || tool == "sf" {
 		return true
@@ -333,7 +385,7 @@ func skip(tool string) bool {
 	case "cc", "gripe":
 		return true
 	}
-	return false
+	return isPluginGroup(tool)
 }
 
 // toolName turns a cobra command path ("sf composer show") into the dotted

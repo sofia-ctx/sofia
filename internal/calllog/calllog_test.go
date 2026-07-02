@@ -240,6 +240,35 @@ func TestStartStampsSessionAndTag(t *testing.T) {
 	}
 }
 
+func TestSetExitCodePreservedOnFinish(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SOFIA_LOG_DIR", dir)
+
+	tr := Start("plugin.sub", nil)
+	tr.SetExitCode(3)
+	tr.Finish(testErr("boom")) // must not clobber the specific code with 1
+
+	data, _ := os.ReadFile(filepath.Join(dir, "calls.jsonl"))
+	var e Entry
+	_ = json.Unmarshal(bytes.TrimSpace(data), &e)
+	if e.ExitCode != 3 || e.Error != "boom" {
+		t.Errorf("want exit=3 err=boom, got exit=%d err=%q", e.ExitCode, e.Error)
+	}
+}
+
+func TestSkipPluginGroups(t *testing.T) {
+	RegisterPluginGroups([]string{"myplug"})
+	if !skip("myplug") {
+		t.Error("a registered plugin group (bare, help-only) must be skipped")
+	}
+	if skip("myplug.greet") {
+		t.Error("a plugin subcommand does real work and must NOT be skipped")
+	}
+	if skip("notaplugin") {
+		t.Error("an unregistered name must not be skipped")
+	}
+}
+
 type testErr string
 
 func (e testErr) Error() string { return string(e) }

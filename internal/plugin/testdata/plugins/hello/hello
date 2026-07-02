@@ -1,0 +1,20 @@
+#!/bin/sh
+# Fixture sofia plugin. The host execs it as `hello <command> [args...]` with
+# the SOFIA_* environment set; it writes its output to stdout and diagnostics to
+# stderr, exactly like a real plugin.
+cmd="$1"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  greet)
+    echo "greeting: ${HELLO_GREETING:-Hello} $*"
+    echo "root=${SOFIA_PROJECT_ROOT} format=${SOFIA_FORMAT} tag=${SOFIA_TAG} source=${SOFIA_SOURCE} sid=${SOFIA_SESSION_ID}"
+    ;;
+  boom)
+    echo "hello: about to crash" 1>&2
+    exit 3
+    ;;
+  *)
+    echo "hello: unknown command '${cmd}'" 1>&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,19 @@
+# Fixture plugin used by the plugin package's invocation and end-to-end tests.
+# A deliberately tiny, language-agnostic (POSIX sh) plugin that exercises the
+# whole host-side contract: env delivery, argv, stdout capture, telemetry, and
+# a non-zero exit path.
+schema: 1
+protocol: "1.0.0"
+version: "0.1.0"
+min_sf: "1.0.0"
+description: "greet fixture plugin"
+commands:
+  - path: greet
+    short: "Print a greeting (echoes the SOFIA_* env it received)"
+  - path: boom
+    short: "Exit non-zero on purpose (crash-path test)"
+settings:
+  - key: HELLO_GREETING
+    prompt: "Greeting word"
+    description: "word used to greet"
+    default: "Hello"
