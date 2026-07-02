@@ -57,6 +57,7 @@ type cachedPlugin struct {
 type diskCache struct {
 	Version int            `json:"version"`
 	Built   time.Time      `json:"built"`
+	DirMod  time.Time      `json:"dir_mod"` // managed dir ModTime at scan; zero if the dir was absent
 	Plugins []cachedPlugin `json:"plugins"`
 }
 
@@ -99,24 +100,32 @@ func loadCache() (*diskCache, bool) {
 	return &c, true
 }
 
-// cacheStale reports whether the managed plugins directory has changed since the
-// cache was built (an install/uninstall bumps the directory mtime). Convention
-// plugins on $PATH are not tracked this way — `sf plugin update` refreshes them
-// explicitly — because stat'ing every $PATH entry on the hot path would defeat
-// the point of the cache.
+// cacheStale reports whether the managed plugins directory changed since the
+// cache was built. It compares the directory's current mtime against the mtime
+// recorded at scan time — two filesystem timestamps of the same inode, so the
+// comparison is exact (no wall-clock-vs-fs granularity gap), and adding or
+// removing a plugin directory, which always bumps the parent's mtime, reliably
+// invalidates the cache. Convention plugins on $PATH are not tracked this way —
+// `sf plugin update` refreshes them explicitly — because stat'ing every $PATH
+// entry on the hot path would defeat the point of the cache.
 func cacheStale(c *diskCache) bool {
 	info, err := os.Stat(PluginsDir())
 	if err != nil {
-		return false // no managed dir → nothing managed can have changed
+		// The managed dir is gone now; stale only if the cache recorded one.
+		return !c.DirMod.IsZero()
 	}
-	return info.ModTime().After(c.Built)
+	return !info.ModTime().Equal(c.DirMod)
 }
 
 func saveCache(plugins []cachedPlugin) error {
 	if err := os.MkdirAll(DataDir(), 0o755); err != nil {
 		return err
 	}
-	c := diskCache{Version: cacheVersion, Built: time.Now().UTC(), Plugins: plugins}
+	var dirMod time.Time
+	if info, err := os.Stat(PluginsDir()); err == nil {
+		dirMod = info.ModTime()
+	}
+	c := diskCache{Version: cacheVersion, Built: time.Now().UTC(), DirMod: dirMod, Plugins: plugins}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err

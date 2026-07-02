@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // writeManaged creates a managed plugin under $XDG_DATA_HOME/sofia/plugins/<name>/
@@ -183,26 +182,36 @@ func TestDisableEnable(t *testing.T) {
 
 func TestCacheWrittenAndReused(t *testing.T) {
 	isolate(t)
-	writeManaged(t, "hello", "schema: 1\nprotocol: \"1.0.0\"\ncommands:\n  - path: greet\n", "echo hi\n")
+	writeManaged(t, "hello", "schema: 1\nprotocol: \"1.0.0\"\nversion: \"0.1.0\"\ncommands:\n  - path: greet\n", "echo hi\n")
 
 	// First Load scans and writes the cache.
-	_ = Load()
+	d, _ := Find(Load(), "hello")
+	if d.Manifest.Version != "0.1.0" {
+		t.Fatalf("initial version = %q", d.Manifest.Version)
+	}
 	if _, err := os.Stat(cachePath()); err != nil {
 		t.Fatalf("cache not written: %v", err)
 	}
 
-	// Delete the plugin on disk but keep the cache: because the cache is fresh
-	// (dir mtime <= built), Load must serve the cached entry without rescanning.
-	if err := os.RemoveAll(filepath.Join(PluginsDir(), "hello")); err != nil {
+	// Rewrite the manifest *contents* only (bumping the version). Editing a file
+	// in place doesn't change the plugins-directory mtime, so the cache stays
+	// fresh and Load must serve the stale-but-cached version without rescanning.
+	if err := os.WriteFile(filepath.Join(PluginsDir(), "hello", manifestFile),
+		[]byte("schema: 1\nprotocol: \"1.0.0\"\nversion: \"9.9.9\"\ncommands:\n  - path: greet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Backdate the plugins dir so it looks unchanged relative to the cache.
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(PluginsDir(), old, old); err != nil {
+	d, _ = Find(Load(), "hello")
+	if d.Manifest.Version != "0.1.0" {
+		t.Errorf("fresh cache should serve the cached version, got %q", d.Manifest.Version)
+	}
+
+	// An explicit Update forces a rescan and picks up the new contents.
+	if _, err := Update(); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := Find(Load(), "hello"); !ok {
-		t.Error("fresh cache should still report the plugin even after its files were removed")
+	d, _ = Find(Load(), "hello")
+	if d.Manifest.Version != "9.9.9" {
+		t.Errorf("after Update, expected rescanned version 9.9.9, got %q", d.Manifest.Version)
 	}
 }
 
