@@ -25,6 +25,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/worktrees"
 	"github.com/sofia-ctx/sofia/internal/history"
 	"github.com/sofia-ctx/sofia/internal/mcpserver"
+	"github.com/sofia-ctx/sofia/internal/plugin"
 	"github.com/sofia-ctx/sofia/internal/strdist"
 	"github.com/sofia-ctx/sofia/internal/version"
 )
@@ -61,7 +62,7 @@ func init() {
 	add("context", commoncode.NewCommand(), grep.NewCommand(), changed.NewCommand(), cc.NewCommand())
 	add("php", composer.NewCommand(), packagist.NewCommand(), github.NewCommand())
 	add("projects", vue.NewCommand())
-	add("infra", doctor.NewCommand(), gripe.NewCommand(), history.NewCommand(), worktrees.NewCommand(), mcpserver.NewCommand())
+	add("infra", doctor.NewCommand(), gripe.NewCommand(), history.NewCommand(), worktrees.NewCommand(), mcpserver.NewCommand(), plugin.NewCommand())
 	RootCmd.AddCommand(hook.NewCommand()) // hidden plumbing — deliberately ungrouped
 	RootCmd.SetHelpCommandGroupID("infra")
 	RootCmd.SetCompletionCommandGroupID("infra")
