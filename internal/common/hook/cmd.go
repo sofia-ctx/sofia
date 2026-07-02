@@ -35,7 +35,7 @@ func NewCommand() *cobra.Command {
 		Short: "PreToolUse: nudge full Read/cat of big source files toward `sf code`",
 		Long: `Reads the PreToolUse JSON payload from stdin and answers with a permission
 decision. Big source files (.go/.php/.ts/.tsx/.vue, ≥ SOFIA_HOOK_MIN_BYTES,
-default 4096) read in full via Read or bare cat get nudged toward the
+default 8192) read in full via Read or bare cat get nudged toward the
 structural path. Modes via SOFIA_HOOK_MODE: off | suggest | nudge (default,
 deny-once-then-allow per session+file) | strict.
 

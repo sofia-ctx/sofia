@@ -64,7 +64,7 @@ type Decision struct {
 // Defaults; both have env overrides (see Mode/MinBytes).
 const (
 	defaultMode     = "nudge"
-	defaultMinBytes = 4096 // ≈1k tokens by the ASCII/4 heuristic
+	defaultMinBytes = 8192 // ≈2k tokens by the ASCII/4 heuristic; measured floor — below this a full Read is cheaper than a structural detour
 )
 
 // Mode reads SOFIA_HOOK_MODE, falling back to nudge.
@@ -76,7 +76,7 @@ func Mode() string {
 	return defaultMode
 }
 
-// MinBytes reads SOFIA_HOOK_MIN_BYTES, falling back to 4096.
+// MinBytes reads SOFIA_HOOK_MIN_BYTES, falling back to 8192.
 func MinBytes() int64 {
 	var n int64
 	if _, err := fmt.Sscanf(os.Getenv("SOFIA_HOOK_MIN_BYTES"), "%d", &n); err == nil && n > 0 {

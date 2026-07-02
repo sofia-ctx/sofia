@@ -21,7 +21,7 @@ value.
 
 - **A PreToolUse hook** (`~/.claude/settings.json`, matcher `Read|Bash` →
   `sf hook pre`): a full read of a large source file
-  (`.go/.php/.ts/.tsx/.vue`, ≥ `SOFIA_HOOK_MIN_BYTES`, default 4096) is
+  (`.go/.php/.ts/.tsx/.vue`, ≥ `SOFIA_HOOK_MIN_BYTES`, default 8192) is
   caught before it runs. `nudge` mode (the default) denies the **first**
   such Read/cat per (session, file) with a hint toward `sf code <file>` /
   `sf code <file> <Symbol>`; an identical repeat call is allowed — so a
