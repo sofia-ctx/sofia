@@ -382,7 +382,7 @@ func skip(tool string) bool {
 		return true
 	}
 	switch tool { // bare groups (print help) + readers that must not self-log
-	case "cc", "gripe":
+	case "cc", "gripe", "plugin":
 		return true
 	}
 	return isPluginGroup(tool)
