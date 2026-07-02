@@ -8,7 +8,7 @@
 // isolation. The router owns the cross-cutting concerns: the compact-or-raw
 // token-saver invariant (internal/emit — emit the summary only when it is
 // actually cheaper than the raw file, else hand back the raw bytes), call-log
-// accounting, and single-symbol slice mode.
+// accounting, and symbol-slice mode (one file, one or more symbols).
 package code
 
 import (
@@ -32,8 +32,8 @@ type Options struct {
 	Inputs       []string // one or more source files
 	Format       string   // toon | md | json
 	ExportedOnly bool
-	API          bool   // PHP only: effective public surface (own + traits + inherited)
-	Symbol       string // optional: slice just this func/method/type (single file)
+	API          bool     // PHP only: effective public surface (own + traits + inherited)
+	Symbols      []string // optional: slice these func/method/type/etc. from Inputs[0] (single file)
 }
 
 // backend is a per-language implementation the router dispatches to.
@@ -68,9 +68,13 @@ func Run(opts Options, w io.Writer) error {
 		return err
 	}
 
-	if opts.Symbol != "" {
-		err := runSlice(cw, opts.Inputs[0], opts.Symbol)
-		tracker.SetSummary(map[string]any{"slice": opts.Symbol, "file": filepath.Base(opts.Inputs[0])})
+	if len(opts.Symbols) > 0 {
+		found, err := runSlices(cw, opts.Inputs[0], opts.Symbols)
+		tracker.SetSummary(map[string]any{
+			"file":    filepath.Base(opts.Inputs[0]),
+			"symbols": len(opts.Symbols),
+			"found":   found,
+		})
 		tracker.RecordOutput(cw)
 		tracker.Finish(err)
 		return err
@@ -107,25 +111,91 @@ func validate(opts Options) error {
 	return nil
 }
 
-// runSlice emits one symbol's source from a single file (compact-or-raw).
-func runSlice(w io.Writer, path, symbol string) error {
+// runSlices emits one or more symbols' source from a single file, in input
+// order, honoring compact-or-raw over the COMBINED output (never worth more
+// tokens than the file itself, however many symbols are requested).
+//
+// Partial success over hard-fail: a symbol that isn't found doesn't sink the
+// whole call — whatever is found still comes back, and each miss gets a
+// marked comment line with the same "available: …" suggestion the
+// single-symbol hard-fail below uses, so the agent can retry the miss alone
+// without re-fetching what it already has. Only when NONE of the requested
+// symbols exist does the call fail outright. found reports how many were
+// actually located, for call-log accounting.
+//
+// A single requested symbol behaves exactly as before (no header comment,
+// same error on a miss) — this is the multi-symbol generalisation of the
+// original single-symbol slice, not a parallel code path.
+func runSlices(w io.Writer, path string, symbols []string) (found int, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("cannot read %s", path)
+		return 0, fmt.Errorf("cannot read %s", path)
 	}
 	be, _ := backendFor(path)
 	if be.slice == nil {
-		return fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
+		return 0, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
 	}
-	text, names, sErr := be.slice(raw, symbol)
-	if sErr != nil {
-		if len(names) > 0 {
-			sErr = fmt.Errorf("%w; available: %s", sErr, strings.Join(names, ", "))
+
+	multi := len(symbols) > 1
+	var out bytes.Buffer
+	var available []string // names available in the file, refreshed on every miss
+	var missErr error      // the backend's own not-found error, for the all-missed case
+	for _, symbol := range symbols {
+		text, names, sErr := be.slice(raw, symbol)
+		if sErr != nil {
+			missErr, available = sErr, names
+			if multi {
+				writeSep(&out)
+				out.WriteString(notFoundComment(symbol, names))
+			}
+			continue
 		}
-		return sErr
+		found++
+		writeSep(&out)
+		if multi {
+			out.WriteString(symbolHeader(symbol))
+		}
+		out.WriteString(ensureNL(text))
 	}
-	_, _ = emit.SmallerOf(w, []byte(ensureNL(text)), raw)
-	return nil
+
+	if found == 0 {
+		if multi {
+			missErr = fmt.Errorf("none of the requested symbols were found: %s", strings.Join(symbols, ", "))
+		}
+		if len(available) > 0 {
+			missErr = fmt.Errorf("%w; available: %s", missErr, strings.Join(available, ", "))
+		}
+		return 0, missErr
+	}
+
+	_, _ = emit.SmallerOf(w, out.Bytes(), raw)
+	return found, nil
+}
+
+// writeSep separates consecutive symbol blocks with a blank line; a no-op
+// before the first block.
+func writeSep(out *bytes.Buffer) {
+	if out.Len() > 0 {
+		out.WriteString("\n")
+	}
+}
+
+// symbolHeader marks the start of one symbol's source within a multi-symbol
+// slice — plain comment syntax, so the concatenated output still reads as
+// valid-ish source rather than an unmarked jumble of disjoint snippets.
+func symbolHeader(symbol string) string {
+	return fmt.Sprintf("// --- %s ---\n", symbol)
+}
+
+// notFoundComment marks a requested symbol that wasn't found, inline with
+// whatever else the call did find. Same "available: …" wording as runSlices'
+// own hard-fail error — the suggestion mechanics are shared, only the
+// severity differs.
+func notFoundComment(symbol string, available []string) string {
+	if len(available) == 0 {
+		return fmt.Sprintf("// --- %s: not found ---\n", symbol)
+	}
+	return fmt.Sprintf("// --- %s: not found; available: %s ---\n", symbol, strings.Join(available, ", "))
 }
 
 // renderAll summarises every input file concurrently, returning one output
