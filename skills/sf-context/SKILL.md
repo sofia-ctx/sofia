@@ -13,7 +13,7 @@ the context window gets re-read from cache on every following turn.
 
 | Need | Instead of | Call |
 |---|---|---|
-| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/TS/Vue; ~6–23×) |
+| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/TS/Vue; ~6–23×; small files auto-return raw) |
 | Only the public surface | — | `sf code <file> --exported`; PHP with traits/parents — `--api` |
 | One function/method/type's body | re-reading the whole file | `sf code <file> <Sym1> [Sym2 …]` (one call, several bodies) |
 | Search across a tree | `rg -C` / `grep -rn` | `sf grep --ext=go,php '<pattern>'` (capped at 30 hits; `--regex`) |
@@ -35,7 +35,7 @@ already fetched — earlier tool results are still in your context; look back
 instead of calling again.
 
 ## When `sf` is NOT needed
-- Files under ~150 lines (<~8 KB) and non-code (md/json/yaml/config) — a plain Read is cheaper than the structural detour.
+- Non-code files (md/json/yaml/config) — plain Read. For code files just use `sf code` — small files come back raw automatically, so it is never worse than a full Read.
 - The bodies you need cover most of the file — one full Read beats slicing it
   piece by piece (batched or not).
 - `sf code` is safe on any supported file: the compact-or-raw invariant means

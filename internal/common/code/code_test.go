@@ -29,6 +29,7 @@ final class ApproveUserController
 `
 
 func TestRunPHP(t *testing.T) {
+	structuralOnly(t)
 	p := filepath.Join(t.TempDir(), "ApproveUserController.php")
 	if err := os.WriteFile(p, []byte(samplePHP), 0o644); err != nil {
 		t.Fatal(err)
@@ -57,6 +58,7 @@ func TestRunPHP(t *testing.T) {
 }
 
 func TestRunMultiFile(t *testing.T) {
+	structuralOnly(t)
 	dir := t.TempDir()
 	goP := filepath.Join(dir, "a.go")
 	phpP := filepath.Join(dir, "b.php")

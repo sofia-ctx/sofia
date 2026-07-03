@@ -103,6 +103,14 @@ isn't found doesn't fail the others, it's just noted as missing. Invariant:
 shorter, the full file is returned (== `cat`), never an error, so `sf code`
 is safe to run on anything.
 
+Below **8 KB** the tool skips structure entirely: the raw file comes back
+behind a one-line `# raw: …` header (per file inside a batch; in slice mode
+the whole file, with the requested symbols noted as included). The project's
+own A/B measured structural round-trips losing to a plain read on small
+files, so `sf code` is **never worse than `cat`** — "always use sf code" is
+a safe rule. `SOFIA_CODE_RAW_BELOW=<bytes>` moves the threshold; `0`
+disables the passthrough.
+
 **`--api`** (PHP): the effective public surface of a class — its own methods
 plus methods from `use`-d traits (recursively) plus inherited ones from
 `extends`, each with a `via` column naming its source. One call instead of

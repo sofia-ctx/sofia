@@ -7,12 +7,14 @@
 // in parallel, and aggregates the results. Each backend is small and tested in
 // isolation. The router owns the cross-cutting concerns: the compact-or-raw
 // token-saver invariant (internal/emit — emit the summary only when it is
-// actually cheaper than the raw file, else hand back the raw bytes), call-log
-// accounting, and symbol-slice mode (one file, one or more symbols).
+// actually cheaper than the raw file, else hand back the raw bytes), the
+// below-threshold raw passthrough ("never worse than cat" — see rawBelow),
+// call-log accounting, and symbol-slice mode (one file, one or more symbols).
 package code
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -67,30 +69,109 @@ func Run(opts Options, w io.Writer) error {
 		tracker.Finish(err)
 		return err
 	}
+	below := rawBelow()
 
 	if len(opts.Symbols) > 0 {
-		found, err := runSlices(cw, opts.Inputs[0], opts.Symbols)
+		found, rawN, err := runSlices(cw, opts.Inputs[0], opts.Symbols, below)
 		tracker.SetSummary(map[string]any{
 			"file":    filepath.Base(opts.Inputs[0]),
 			"symbols": len(opts.Symbols),
 			"found":   found,
+			"raw":     rawN,
 		})
 		tracker.RecordOutput(cw)
 		tracker.Finish(err)
 		return err
 	}
 
-	blocks := renderAll(opts)
+	blocks := renderAll(opts, below)
+	rawN := 0
 	for i, b := range blocks {
 		if i > 0 {
 			_, _ = cw.Write([]byte("\n"))
 		}
-		_, _ = cw.Write(b)
+		_, _ = cw.Write(b.out)
+		if b.raw {
+			rawN++
+		}
 	}
-	tracker.SetSummary(map[string]any{"files": len(opts.Inputs)})
+	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN})
 	tracker.RecordOutput(cw)
 	tracker.Finish(nil)
 	return nil
+}
+
+// defaultRawBelow is the raw-passthrough floor: a file smaller than this
+// is returned raw (behind a one-line marker header) instead of summarised
+// or sliced. Numerically the same measured floor as the Read-hook's
+// defaultMinBytes (internal/common/hook) — the project's own A/B showed a
+// structural round-trip losing to a plain read below ≈8 KB — but kept a
+// separate constant on purpose: the hook gates other tools' Reads, this
+// gates sf code's own output, and the two knobs can move independently.
+const defaultRawBelow = 8192
+
+// rawBelow reads SOFIA_CODE_RAW_BELOW: integer bytes, 0 disables the
+// passthrough entirely, unset/invalid → defaultRawBelow. Same Sscanf
+// parsing as hook.MinBytes(), except 0 is meaningful here (the off
+// switch), so only negatives are rejected.
+func rawBelow() int64 {
+	var n int64
+	if _, err := fmt.Sscanf(os.Getenv("SOFIA_CODE_RAW_BELOW"), "%d", &n); err == nil && n >= 0 {
+		return n
+	}
+	return defaultRawBelow
+}
+
+// passthroughBlock renders a below-threshold file as its raw content behind
+// a one-line marker header, so the agent sees WHY there is no structure
+// without paying for one. For --format json the marker becomes an object
+// with an explicit raw flag (a bare content dump inside a JSON stream would
+// be indistinguishable from a broken summary). symbols, when non-empty,
+// marks slice mode: the header notes the requested symbols ride along in
+// the full file.
+func passthroughBlock(path string, raw []byte, format string, below int64, symbols []string) []byte {
+	note := fmt.Sprintf("%s < %s — %s", sizeK(int64(len(raw))), sizeK(below), rawReason(symbols))
+	if format == "json" {
+		return rawFileJSON(path, note, raw)
+	}
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "# raw: %s (%s)\n", path, note)
+	b.Write(raw)
+	return b.Bytes()
+}
+
+func rawReason(symbols []string) string {
+	if len(symbols) > 0 {
+		return "full file (includes " + strings.Join(symbols, ", ") + ")"
+	}
+	return "full file is cheaper than structure"
+}
+
+// rawFile is the JSON shape of a passthrough block: the raw marker plus the
+// same human-readable note the toon/md header carries.
+type rawFile struct {
+	File    string `json:"file"`
+	Raw     bool   `json:"raw"`
+	Note    string `json:"note"`
+	Content string `json:"content"`
+}
+
+func rawFileJSON(path, note string, raw []byte) []byte {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(rawFile{File: path, Raw: true, Note: note, Content: string(raw)})
+	return b.Bytes()
+}
+
+// sizeK renders a byte count the way the hook's nudge text does (%.1fK),
+// except whole multiples of 1024 drop the decimal (8192 → "8K").
+func sizeK(n int64) string {
+	if n%1024 == 0 {
+		return fmt.Sprintf("%dK", n/1024)
+	}
+	return fmt.Sprintf("%.1fK", float64(n)/1024)
 }
 
 func validate(opts Options) error {
@@ -126,14 +207,27 @@ func validate(opts Options) error {
 // A single requested symbol behaves exactly as before (no header comment,
 // same error on a miss) — this is the multi-symbol generalisation of the
 // original single-symbol slice, not a parallel code path.
-func runSlices(w io.Writer, path string, symbols []string) (found int, err error) {
+//
+// Below the passthrough threshold the file isn't sliced at all: slicing a
+// tiny file is pure ceremony, so the whole raw file comes back with a
+// header noting the requested symbols are included in full. rawN reports
+// that (0 or 1) for call-log accounting; found then counts the symbols as
+// delivered-by-containment — nothing was parsed to verify them, which is
+// the point.
+func runSlices(w io.Writer, path string, symbols []string, below int64) (found, rawN int, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("cannot read %s", path)
+		return 0, 0, fmt.Errorf("cannot read %s", path)
 	}
 	be, _ := backendFor(path)
 	if be.slice == nil {
-		return 0, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
+		return 0, 0, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
+	}
+	if below > 0 && int64(len(raw)) < below {
+		// Slice output ignores opts.Format today (it is always plain
+		// source); the passthrough header follows suit.
+		_, _ = w.Write(passthroughBlock(path, raw, "", below, symbols))
+		return len(symbols), 1, nil
 	}
 
 	multi := len(symbols) > 1
@@ -165,11 +259,11 @@ func runSlices(w io.Writer, path string, symbols []string) (found int, err error
 		if len(available) > 0 {
 			missErr = fmt.Errorf("%w; available: %s", missErr, strings.Join(available, ", "))
 		}
-		return 0, missErr
+		return 0, 0, missErr
 	}
 
 	_, _ = emit.SmallerOf(w, out.Bytes(), raw)
-	return found, nil
+	return found, 0, nil
 }
 
 // writeSep separates consecutive symbol blocks with a blank line; a no-op
@@ -198,10 +292,17 @@ func notFoundComment(symbol string, available []string) string {
 	return fmt.Sprintf("// --- %s: not found; available: %s ---\n", symbol, strings.Join(available, ", "))
 }
 
+// rendered is one file's output block plus the router's bookkeeping about
+// how it was produced.
+type rendered struct {
+	out []byte
+	raw bool // below-threshold passthrough (not the compact-or-raw fallback)
+}
+
 // renderAll summarises every input file concurrently, returning one output
 // block per file in input order.
-func renderAll(opts Options) [][]byte {
-	blocks := make([][]byte, len(opts.Inputs))
+func renderAll(opts Options, below int64) []rendered {
+	blocks := make([]rendered, len(opts.Inputs))
 	sem := make(chan struct{}, maxParallel())
 	var wg sync.WaitGroup
 	for i, path := range opts.Inputs {
@@ -210,7 +311,7 @@ func renderAll(opts Options) [][]byte {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			blocks[i] = renderOne(path, opts.Format, opts.ExportedOnly, opts.API)
+			blocks[i] = renderOne(path, opts.Format, opts.ExportedOnly, opts.API, below)
 		}(i, path)
 	}
 	wg.Wait()
@@ -221,26 +322,34 @@ func renderAll(opts Options) [][]byte {
 // it can't be built or wouldn't save tokens — the raw file (so the agent always
 // gets the content and never has to fall back to a manual cat). JSON is exempt
 // from the size comparison (machine output).
-func renderOne(path, format string, exported, api bool) []byte {
+//
+// Below the passthrough threshold the raw file IS the cheap form, so the
+// structural detour is skipped entirely ("never worse than cat"). --api is
+// exempt for the same reason it skips the size guard below: its output
+// includes trait/parent methods the raw file doesn't contain.
+func renderOne(path, format string, exported, api bool, below int64) rendered {
 	raw, _ := os.ReadFile(path)
+	if raw != nil && !api && below > 0 && int64(len(raw)) < below {
+		return rendered{out: passthroughBlock(path, raw, format, below, nil), raw: true}
+	}
 	be, _ := backendFor(path)
 
 	var compact bytes.Buffer
 	if _, err := be.summarize(&compact, path, format, exported, api); err != nil {
 		if raw != nil { // graceful fallback to the raw file
-			return raw
+			return rendered{out: raw}
 		}
-		return []byte(fmt.Sprintf("file: %s\n# %v\n", filepath.Base(path), err))
+		return rendered{out: []byte(fmt.Sprintf("file: %s\n# %v\n", filepath.Base(path), err))}
 	}
 	// --api deliberately surfaces methods the raw file doesn't contain (they
 	// live in traits/parents), so the compact-or-raw size guard — which would
 	// prefer the smaller raw file — must not apply. JSON is exempt likewise.
 	if format == "json" || api {
-		return compact.Bytes()
+		return rendered{out: compact.Bytes()}
 	}
 	var out bytes.Buffer
 	_, _ = emit.SmallerOf(&out, compact.Bytes(), raw)
-	return out.Bytes()
+	return rendered{out: out.Bytes()}
 }
 
 func maxParallel() int {

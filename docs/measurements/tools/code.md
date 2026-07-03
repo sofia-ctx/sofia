@@ -155,6 +155,18 @@ router. Multiple files per call:
 
 ## Boundary of applicability
 
+### Boundary update (2026-07-03)
+
+Below **8192 B** the tool now returns the raw file by design (behind a
+one-line `# raw: …` header) instead of a summary: the project's own A/B
+measured structural round-trips **losing** to a plain read on small files —
+[`2026-07-02-t1-composer.md`](https://github.com/sofia-ctx/evaluation/blob/main/results/2026-07-02-t1-composer.md)
+(7.0 KB single file: +29% $, +45% tokens) and
+[`2026-07-02-t2-pricing.md`](https://github.com/sofia-ctx/evaluation/blob/main/results/2026-07-02-t2-pricing.md)
+(2.9 KB single file: +9% $, +29% tokens). `SOFIA_CODE_RAW_BELOW` moves the
+threshold (0 disables). The ratios measured above are unaffected — those
+files are all well past this floor.
+
 - **Structure of one file, not its logic.** Function bodies,
   implementation, the values of complex expressions aren't shown — for
   those you need the file itself.

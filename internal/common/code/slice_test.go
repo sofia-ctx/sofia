@@ -17,11 +17,22 @@ func writeTmp(t *testing.T, name, content string) string {
 	return p
 }
 
+// structuralOnly pins the raw passthrough off (SOFIA_CODE_RAW_BELOW=0) for
+// tests that exercise the summariser/slicer on deliberately tiny fixtures —
+// with the default threshold those files would come back raw before the
+// machinery under test ever ran. The passthrough itself is covered in
+// passthrough_test.go.
+func structuralOnly(t *testing.T) {
+	t.Helper()
+	t.Setenv("SOFIA_CODE_RAW_BELOW", "0")
+}
+
 // --- single-symbol regression: Symbols with exactly one element must behave
 // exactly as the old singular Symbol field did (no header comment, same
 // not-found error) --------------------------------------------------------
 
 func TestSliceGoMethodWithDoc(t *testing.T) {
+	structuralOnly(t)
 	p := writeTmp(t, "s.go", "package x\n\n// Doc line.\nfunc (s *S) Foo(a int) bool { return a > 0 }\n\nfunc Bar() {}\n")
 	var buf bytes.Buffer
 	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"S.Foo"}}, &buf); err != nil {
@@ -40,6 +51,7 @@ func TestSliceGoMethodWithDoc(t *testing.T) {
 }
 
 func TestSlicePHPMethod(t *testing.T) {
+	structuralOnly(t)
 	src := "<?php\nclass C {\n  public function a(): void {}\n  public function b(int $n): bool { return $n > 0; }\n}\n"
 	p := writeTmp(t, "c.php", src)
 	var buf bytes.Buffer
@@ -56,6 +68,7 @@ func TestSlicePHPMethod(t *testing.T) {
 }
 
 func TestSlicePHPWholeClass(t *testing.T) {
+	structuralOnly(t)
 	src := "<?php\nclass C {\n  public function a(): void {}\n  public function b(int $n): bool { return $n > 0; }\n}\n"
 	p := writeTmp(t, "c.php", src)
 	var buf bytes.Buffer
@@ -69,6 +82,7 @@ func TestSlicePHPWholeClass(t *testing.T) {
 }
 
 func TestSlicePHPWholeEnum(t *testing.T) {
+	structuralOnly(t)
 	src := "<?php\nenum Status: string {\n  case Open = 'open';\n  case Closed = 'closed';\n}\n"
 	p := writeTmp(t, "s.php", src)
 	var buf bytes.Buffer
@@ -81,6 +95,7 @@ func TestSlicePHPWholeEnum(t *testing.T) {
 }
 
 func TestSliceNotFoundListsAvailable(t *testing.T) {
+	structuralOnly(t)
 	p := writeTmp(t, "s.go", "package x\nfunc Bar() {}\n")
 	var buf bytes.Buffer
 	err := Run(Options{Inputs: []string{p}, Symbols: []string{"Nope"}}, &buf)
@@ -154,6 +169,7 @@ class C {
 `
 
 func TestSliceMultiSymbolAllFound(t *testing.T) {
+	structuralOnly(t)
 	for _, tt := range []struct {
 		name    string
 		file    string
@@ -208,6 +224,7 @@ func TestSliceMultiSymbolAllFound(t *testing.T) {
 }
 
 func TestSliceMultiSymbolPartialFound(t *testing.T) {
+	structuralOnly(t)
 	p := writeTmp(t, "s.go", multiGoSrc)
 	var buf bytes.Buffer
 	err := Run(Options{Inputs: []string{p}, Symbols: []string{"Foo", "NoSuchSymbol"}}, &buf)
@@ -227,6 +244,7 @@ func TestSliceMultiSymbolPartialFound(t *testing.T) {
 }
 
 func TestSliceMultiSymbolNoneFound(t *testing.T) {
+	structuralOnly(t)
 	p := writeTmp(t, "s.go", multiGoSrc)
 	var buf bytes.Buffer
 	err := Run(Options{Inputs: []string{p}, Symbols: []string{"Nope1", "Nope2"}}, &buf)
@@ -249,6 +267,7 @@ func TestSliceMultiSymbolNoneFound(t *testing.T) {
 // header comments push the sliced text past the size of the raw file, so the
 // invariant must fall back to the raw file rather than "save" negative tokens.
 func TestSliceMultiSymbolCompactOrRaw(t *testing.T) {
+	structuralOnly(t)
 	src := "package x\n\nfunc A() {}\nfunc B() {}\n"
 	p := writeTmp(t, "tiny.go", src)
 	var buf bytes.Buffer

@@ -12,6 +12,7 @@ import (
 // or a file with no type declaration), `sf code` must fall back to the raw
 // file (== cat) rather than erroring, so the agent still gets the content.
 func TestRunPHPFallbackOnParseError(t *testing.T) {
+	structuralOnly(t) // exercise the parse-error fallback, not the size passthrough
 	src := "<?php\n$$$ not parseable as a declaration $$$\n"
 	p := filepath.Join(t.TempDir(), "Broken.php")
 	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
