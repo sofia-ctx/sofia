@@ -28,6 +28,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/code/phpcode"
 	"github.com/sofia-ctx/sofia/internal/common/code/tscode"
 	"github.com/sofia-ctx/sofia/internal/emit"
+	"github.com/sofia-ctx/sofia/internal/tokens"
 )
 
 type Options struct {
@@ -72,20 +73,23 @@ func Run(opts Options, w io.Writer) error {
 	below := rawBelow()
 
 	if len(opts.Symbols) > 0 {
-		found, rawN, err := runSlices(cw, opts.Inputs[0], opts.Symbols, below)
+		found, rawN, rawTok, err := runSlices(cw, opts.Inputs[0], opts.Symbols, below)
 		tracker.SetSummary(map[string]any{
 			"file":    filepath.Base(opts.Inputs[0]),
 			"symbols": len(opts.Symbols),
 			"found":   found,
 			"raw":     rawN,
 		})
+		if err == nil {
+			emit.Footer(cw, cw.Tokens, rawTok)
+		}
 		tracker.RecordOutput(cw)
 		tracker.Finish(err)
 		return err
 	}
 
 	blocks := renderAll(opts, below)
-	rawN := 0
+	rawN, rawTok := 0, int64(0)
 	for i, b := range blocks {
 		if i > 0 {
 			_, _ = cw.Write([]byte("\n"))
@@ -94,7 +98,9 @@ func Run(opts Options, w io.Writer) error {
 		if b.raw {
 			rawN++
 		}
+		rawTok += b.rawTok
 	}
+	emit.Footer(cw, cw.Tokens, rawTok)
 	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN})
 	tracker.RecordOutput(cw)
 	tracker.Finish(nil)
@@ -213,21 +219,23 @@ func validate(opts Options) error {
 // header noting the requested symbols are included in full. rawN reports
 // that (0 or 1) for call-log accounting; found then counts the symbols as
 // delivered-by-containment — nothing was parsed to verify them, which is
-// the point.
-func runSlices(w io.Writer, path string, symbols []string, below int64) (found, rawN int, err error) {
+// the point. rawTok is the estimated token cost of the raw file, for the
+// cost footer.
+func runSlices(w io.Writer, path string, symbols []string, below int64) (found, rawN int, rawTok int64, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return 0, 0, fmt.Errorf("cannot read %s", path)
+		return 0, 0, 0, fmt.Errorf("cannot read %s", path)
 	}
+	rawTok = tokens.Estimate(string(raw))
 	be, _ := backendFor(path)
 	if be.slice == nil {
-		return 0, 0, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
+		return 0, 0, rawTok, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
 	}
 	if below > 0 && int64(len(raw)) < below {
 		// Slice output ignores opts.Format today (it is always plain
 		// source); the passthrough header follows suit.
 		_, _ = w.Write(passthroughBlock(path, raw, "", below, symbols))
-		return len(symbols), 1, nil
+		return len(symbols), 1, rawTok, nil
 	}
 
 	multi := len(symbols) > 1
@@ -259,11 +267,11 @@ func runSlices(w io.Writer, path string, symbols []string, below int64) (found, 
 		if len(available) > 0 {
 			missErr = fmt.Errorf("%w; available: %s", missErr, strings.Join(available, ", "))
 		}
-		return 0, 0, missErr
+		return 0, 0, rawTok, missErr
 	}
 
 	_, _ = emit.SmallerOf(w, out.Bytes(), raw)
-	return found, 0, nil
+	return found, 0, rawTok, nil
 }
 
 // writeSep separates consecutive symbol blocks with a blank line; a no-op
@@ -295,8 +303,9 @@ func notFoundComment(symbol string, available []string) string {
 // rendered is one file's output block plus the router's bookkeeping about
 // how it was produced.
 type rendered struct {
-	out []byte
-	raw bool // below-threshold passthrough (not the compact-or-raw fallback)
+	out    []byte
+	raw    bool  // below-threshold passthrough (not the compact-or-raw fallback)
+	rawTok int64 // estimated token cost of the raw file, for the cost footer
 }
 
 // renderAll summarises every input file concurrently, returning one output
@@ -329,15 +338,16 @@ func renderAll(opts Options, below int64) []rendered {
 // includes trait/parent methods the raw file doesn't contain.
 func renderOne(path, format string, exported, api bool, below int64) rendered {
 	raw, _ := os.ReadFile(path)
+	rt := tokens.Estimate(string(raw))
 	if raw != nil && !api && below > 0 && int64(len(raw)) < below {
-		return rendered{out: passthroughBlock(path, raw, format, below, nil), raw: true}
+		return rendered{out: passthroughBlock(path, raw, format, below, nil), raw: true, rawTok: rt}
 	}
 	be, _ := backendFor(path)
 
 	var compact bytes.Buffer
 	if _, err := be.summarize(&compact, path, format, exported, api); err != nil {
 		if raw != nil { // graceful fallback to the raw file
-			return rendered{out: raw}
+			return rendered{out: raw, rawTok: rt}
 		}
 		return rendered{out: []byte(fmt.Sprintf("file: %s\n# %v\n", filepath.Base(path), err))}
 	}
@@ -345,11 +355,11 @@ func renderOne(path, format string, exported, api bool, below int64) rendered {
 	// live in traits/parents), so the compact-or-raw size guard — which would
 	// prefer the smaller raw file — must not apply. JSON is exempt likewise.
 	if format == "json" || api {
-		return rendered{out: compact.Bytes()}
+		return rendered{out: compact.Bytes(), rawTok: rt}
 	}
 	var out bytes.Buffer
 	_, _ = emit.SmallerOf(&out, compact.Bytes(), raw)
-	return rendered{out: out.Bytes()}
+	return rendered{out: out.Bytes(), rawTok: rt}
 }
 
 func maxParallel() int {

@@ -111,6 +111,10 @@ files, so `sf code` is **never worse than `cat`** — "always use sf code" is
 a safe rule. `SOFIA_CODE_RAW_BELOW=<bytes>` moves the threshold; `0`
 disables the passthrough.
 
+Every `code`/`grep`/`changed` call ends with a one-line cost footer — e.g.
+`# sf ≈612 tok · raw ≈3120 · saved ≈2508` — so the per-call token economics
+are visible to the agent itself; `SOFIA_FOOTER=off` hides it.
+
 **`--api`** (PHP): the effective public surface of a class — its own methods
 plus methods from `use`-d traits (recursively) plus inherited ones from
 `extends`, each with a `via` column naming its source. One call instead of

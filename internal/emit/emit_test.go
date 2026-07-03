@@ -47,3 +47,38 @@ func TestSmallerOfNilRawEmitsCompact(t *testing.T) {
 		t.Errorf("nil raw must emit compact; got %q res=%+v", buf.String(), res)
 	}
 }
+
+// TestFooter pins the exact one-line formats: the three-field form when a
+// raw comparison saves something, the passthrough note when it doesn't
+// (never a negative "saved"), and the plain form without a raw baseline.
+func TestFooter(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		tok  int64
+		raw  int64
+		want string
+	}{
+		{"raw baseline with savings", 612, 3120, "# sf ≈612 tok · raw ≈3120 · saved ≈2508\n"},
+		{"no raw baseline", 612, 0, "# sf ≈612 tok\n"},
+		{"raw not cheaper — no negative saved", 1980, 1500, "# sf ≈1980 tok · raw passthrough\n"},
+		{"exact tie counts as passthrough", 100, 100, "# sf ≈100 tok · raw passthrough\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SOFIA_FOOTER", "")
+			var buf bytes.Buffer
+			Footer(&buf, tt.tok, tt.raw)
+			if buf.String() != tt.want {
+				t.Errorf("Footer(%d, %d) = %q, want %q", tt.tok, tt.raw, buf.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestFooterOff(t *testing.T) {
+	t.Setenv("SOFIA_FOOTER", "off")
+	var buf bytes.Buffer
+	Footer(&buf, 10, 100)
+	if buf.Len() != 0 {
+		t.Errorf("SOFIA_FOOTER=off must suppress the footer, got %q", buf.String())
+	}
+}

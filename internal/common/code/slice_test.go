@@ -268,6 +268,7 @@ func TestSliceMultiSymbolNoneFound(t *testing.T) {
 // invariant must fall back to the raw file rather than "save" negative tokens.
 func TestSliceMultiSymbolCompactOrRaw(t *testing.T) {
 	structuralOnly(t)
+	t.Setenv("SOFIA_FOOTER", "off") // byte-exact comparison below
 	src := "package x\n\nfunc A() {}\nfunc B() {}\n"
 	p := writeTmp(t, "tiny.go", src)
 	var buf bytes.Buffer

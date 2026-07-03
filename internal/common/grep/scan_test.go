@@ -201,3 +201,38 @@ func TestRun_MaxPerPattern(t *testing.T) {
 		t.Errorf("expected truncation marker, got:\n%s", out)
 	}
 }
+
+// TestRun_Footer: grep has no single raw baseline, so its cost footer is the
+// plain one-field form; SOFIA_FOOTER=off removes it.
+func TestRun_Footer(t *testing.T) {
+	root := scaffoldTree(t)
+	run := func() string {
+		var buf bytes.Buffer
+		if err := Run(Options{
+			Root:          root,
+			Patterns:      []string{"TARGET"},
+			Format:        "toon",
+			CaseSensitive: true,
+			Exts:          []string{"php"},
+		}, &buf); err != nil {
+			t.Fatal(err)
+		}
+		return buf.String()
+	}
+
+	t.Setenv("SOFIA_FOOTER", "")
+	out := run()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if !strings.HasPrefix(last, "# sf ≈") || !strings.HasSuffix(last, " tok") {
+		t.Errorf("plain footer expected as the last line, got %q", last)
+	}
+	if strings.Contains(last, "raw") {
+		t.Errorf("grep footer must not carry a raw comparison, got %q", last)
+	}
+
+	t.Setenv("SOFIA_FOOTER", "off")
+	if out := run(); strings.Contains(out, "# sf ≈") {
+		t.Errorf("SOFIA_FOOTER=off must remove the footer:\n%s", out)
+	}
+}

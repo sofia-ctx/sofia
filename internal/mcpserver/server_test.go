@@ -106,14 +106,20 @@ func TestCallTool_CodeRoundTrip(t *testing.T) {
 	if text == "" {
 		t.Fatal("empty tool result content")
 	}
-	// The payload is the CLI's --format json output verbatim: valid JSON that
-	// names the symbol we defined.
+	// The payload is the CLI's --format json output: a JSON value that names
+	// the symbol we defined, followed by the one-line cost footer (which is
+	// why this decodes the first value instead of unmarshalling the whole
+	// payload).
 	var v any
-	if err := json.Unmarshal([]byte(text), &v); err != nil {
-		t.Fatalf("payload is not valid JSON: %v\npayload:\n%s", err, text)
+	if err := json.NewDecoder(strings.NewReader(text)).Decode(&v); err != nil {
+		t.Fatalf("payload does not start with valid JSON: %v\npayload:\n%s", err, text)
 	}
 	if !strings.Contains(text, "Widget") {
 		t.Errorf("JSON payload missing type Widget:\n%s", text)
+	}
+	// The cost footer must flow through the shared Run path over MCP too.
+	if !strings.Contains(text, "# sf ≈") {
+		t.Errorf("cost footer missing from MCP payload:\n%s", text)
 	}
 }
 

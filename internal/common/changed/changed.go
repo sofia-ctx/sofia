@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/emit"
 )
 
 type Options struct {
@@ -66,6 +67,11 @@ func Run(opts Options, w io.Writer) error {
 		renderErr = renderJSON(cw, res)
 	default:
 		renderErr = fmt.Errorf("unknown format %q (use toon|md|json)", opts.Format)
+	}
+	if renderErr == nil {
+		// No single raw baseline to compare a classified diff against — the
+		// footer reports this call's own cost only.
+		emit.Footer(cw, cw.Tokens, 0)
 	}
 	tracker.RecordOutput(cw)
 	tracker.Finish(renderErr)

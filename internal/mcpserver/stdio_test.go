@@ -77,9 +77,11 @@ func TestStdioProtocolRoundTrip(t *testing.T) {
 		t.Fatalf("tool error over stdio: %s", stdioText(res))
 	}
 	text := stdioText(res)
+	// Decode the leading JSON value; the payload ends with the one-line cost
+	// footer, which is not part of the JSON document.
 	var v any
-	if err := json.Unmarshal([]byte(text), &v); err != nil {
-		t.Fatalf("stdio payload not valid JSON: %v\n%s", err, text)
+	if err := json.NewDecoder(strings.NewReader(text)).Decode(&v); err != nil {
+		t.Fatalf("stdio payload does not start with valid JSON: %v\n%s", err, text)
 	}
 	if !strings.Contains(text, "Widget") {
 		t.Errorf("stdio payload missing type Widget:\n%s", text)

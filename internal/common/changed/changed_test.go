@@ -1,7 +1,12 @@
 package changed
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +67,58 @@ func TestParseUntracked(t *testing.T) {
 	want := []string{"new.go", "a/b.txt"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseUntracked = %v, want %v", got, want)
+	}
+}
+
+// TestRunFooter drives Run against a real scratch repo: the output must end
+// with the plain cost footer (changed has no single raw baseline), and
+// SOFIA_FOOTER=off must remove it.
+func TestRunFooter(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	gitT(t, dir, "init")
+	gitT(t, dir, "config", "user.email", "t@example.com")
+	gitT(t, dir, "config", "user.name", "t")
+	f := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(f, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "init")
+	if err := os.WriteFile(f, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func() string {
+		var buf bytes.Buffer
+		if err := Run(Options{Root: dir, Symbols: false, Format: "toon"}, &buf); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return buf.String()
+	}
+
+	t.Setenv("SOFIA_FOOTER", "")
+	out := run()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if !strings.HasPrefix(last, "# sf ≈") || !strings.HasSuffix(last, " tok") {
+		t.Errorf("plain footer expected as the last line, got %q in:\n%s", last, out)
+	}
+
+	t.Setenv("SOFIA_FOOTER", "off")
+	if out := run(); strings.Contains(out, "# sf ≈") {
+		t.Errorf("SOFIA_FOOTER=off must remove the footer:\n%s", out)
+	}
+}
+
+func gitT(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
