@@ -35,7 +35,12 @@ already fetched — earlier tool results are still in your context; look back
 instead of calling again.
 
 ## When `sf` is NOT needed
-- Non-code files (md/json/yaml/config) — plain Read. For code files just use `sf code` — small files come back raw automatically, so it is never worse than a full Read.
+- Non-code files (md/json/yaml/config) — plain Read.
+- **The file you are about to Edit — plain Read, not `sf`**: the harness
+  requires a native Read before Edit anyway, so an `sf code` call on the
+  edit target is pure overhead (measured: it re-created the exact loss it
+  was meant to fix). Use `sf code` for files you only need to *understand* —
+  there small files come back raw automatically, never worse than a full Read.
 - The bodies you need cover most of the file — one full Read beats slicing it
   piece by piece (batched or not).
 - `sf code` is safe on any supported file: the compact-or-raw invariant means
