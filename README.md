@@ -501,6 +501,31 @@ repeated queries — candidates for caching).
   diverges from actual billing by ±20–30%; fine for trends, not for literal
   cost attribution.
 
+## Packs
+
+`sf pack install <git-url|dir>` installs a "pack" — a git repo or local
+directory holding a `pack.yaml` — laying out everything it declares: sf
+plugins (`$XDG_DATA_HOME/sofia/plugins`), Claude skills/commands (`$CLAUDE_DIR`,
+env override, default `~/.claude`), and project instructions/templates
+(`--project`, default cwd). A destination the pack doesn't own, or one edited
+by hand since install, blocks the install as a conflict; `--force` overwrites
+it.
+
+```yaml
+schema: 1
+name: xcraft
+description: CRM agent pack
+plugins:
+  - path: plugins/crm
+instructions:
+  - src: instructions/AGENTS.md
+claude:
+  skills: [ { src: skills/my-skill } ]
+```
+
+`sf pack list` / `info <name>` / `status [<name>]` / `uninstall <name>` round
+out the lifecycle.
+
 ## Layout
 
 ```
