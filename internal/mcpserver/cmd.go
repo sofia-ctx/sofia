@@ -41,6 +41,7 @@ The server runs until the client disconnects or the process is signalled.`,
 		}
 		ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		ensureSessionEnv()
 		return NewServer().Run(ctx, &mcp.StdioTransport{})
 	}
 	return cmd

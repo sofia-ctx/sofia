@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/sofia-ctx/sofia/internal/calllog"
 )
 
 // expectedTools is the exact public-safe tool set the server must expose —
@@ -121,6 +123,83 @@ func TestCallTool_CodeRoundTrip(t *testing.T) {
 	if !strings.Contains(text, "# sf ≈") {
 		t.Errorf("cost footer missing from MCP payload:\n%s", text)
 	}
+}
+
+func TestCallTool_CodeDedupStubAndForce(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("SOFIA_SESSION_ID", "sid-mcp-dedup")
+	t.Setenv("SOFIA_DEDUP_WINDOW", "180")
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "sample.go")
+	code := "package sample\n\ntype Widget struct{ Name string }\n\nfunc (w Widget) Hello() string { return w.Name }\n"
+	if err := os.WriteFile(src, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cs := connectInMemory(ctx, t)
+
+	res1, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "code",
+		Arguments: map[string]any{"files": []string{src}},
+	})
+	if err != nil {
+		t.Fatalf("tools/call code (first): %v", err)
+	}
+	if res1.IsError {
+		t.Fatalf("first call reported error: %s", contentText(res1))
+	}
+
+	res2, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "code",
+		Arguments: map[string]any{"files": []string{src}},
+	})
+	if err != nil {
+		t.Fatalf("tools/call code (second): %v", err)
+	}
+	text2 := contentText(res2)
+	if !strings.Contains(text2, `"dedup":true`) {
+		t.Fatalf("second identical call must be dedup-stubbed, got:\n%s", text2)
+	}
+
+	res3, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "code",
+		Arguments: map[string]any{"files": []string{src}, "force": true},
+	})
+	if err != nil {
+		t.Fatalf("tools/call code (force): %v", err)
+	}
+	text3 := contentText(res3)
+	if strings.Contains(text3, `"dedup":true`) {
+		t.Fatalf("force:true must bypass the dedup stub, got:\n%s", text3)
+	}
+	if !strings.Contains(text3, "Widget") {
+		t.Errorf("forced call must return full content, got:\n%s", text3)
+	}
+}
+
+func TestEnsureSessionEnv(t *testing.T) {
+	t.Run("sets SOFIA_SESSION_ID when no session is present", func(t *testing.T) {
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+		t.Setenv("SOFIA_SESSION_ID", "")
+		ensureSessionEnv()
+		if calllog.SessionID() == "" {
+			t.Fatal("expected ensureSessionEnv to synthesize a session id")
+		}
+		if !strings.HasPrefix(os.Getenv("SOFIA_SESSION_ID"), "mcp-") {
+			t.Errorf("SOFIA_SESSION_ID = %q, want an mcp-<pid>-<ts> id", os.Getenv("SOFIA_SESSION_ID"))
+		}
+	})
+	t.Run("leaves an existing session id alone", func(t *testing.T) {
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+		t.Setenv("SOFIA_SESSION_ID", "already-set")
+		ensureSessionEnv()
+		if got := os.Getenv("SOFIA_SESSION_ID"); got != "already-set" {
+			t.Errorf("SOFIA_SESSION_ID = %q, want unchanged already-set", got)
+		}
+	})
 }
 
 func TestCallTool_ErrorIsToolError(t *testing.T) {

@@ -84,8 +84,13 @@ package mcpserver
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/sofia-ctx/sofia/internal/calllog"
 )
 
 // serverName / serverVersion identify this server to MCP clients. Version is
@@ -111,6 +116,24 @@ func NewServer() *mcp.Server {
 	}, nil)
 	registerTools(s)
 	return s
+}
+
+// ensureSessionEnv synthesizes a session id for internal/dedup when none is
+// already set. A long-lived `sf mcp` stdio process is effectively one
+// continuous session — it never gets CLAUDE_CODE_SESSION_ID injected the way
+// a Bash-tool call does — so without this, every `code` call would look
+// session-less and dedup would never engage. Unique per process (pid + start
+// time), so concurrent `sf mcp` invocations don't collide.
+//
+// Accepted wrinkle: a server that outlives a client's /clear can go on
+// stubbing calls from the new conversation for up to the dedup window — it
+// self-heals (the stub itself teaches force:true) and tearing down session
+// state on some /clear heuristic would be worse.
+func ensureSessionEnv() {
+	if calllog.SessionID() != "" {
+		return
+	}
+	_ = os.Setenv("SOFIA_SESSION_ID", fmt.Sprintf("mcp-%d-%d", os.Getpid(), time.Now().Unix()))
 }
 
 // textResult wraps rendered output as a single MCP text-content result.

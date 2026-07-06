@@ -29,6 +29,7 @@ type codeInput struct {
 	Symbols  []string `json:"symbols,omitempty" jsonschema:"with exactly one file, slice these symbols' full source in one call instead of summarising the file (Go/PHP only); a symbol that isn't found doesn't fail the call, it's just noted as missing"`
 	Exported bool     `json:"exported,omitempty" jsonschema:"show only exported/public symbols"`
 	API      bool     `json:"api,omitempty" jsonschema:"PHP: effective public surface (own + trait + inherited methods); implies exported"`
+	Force    bool     `json:"force,omitempty" jsonschema:"re-fetch even if this exact call was answered moments ago (bypasses the 'already returned' dedup stub)"`
 }
 
 type grepInput struct {
@@ -122,7 +123,7 @@ type vueRoutesInput struct {
 func registerTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "code",
-		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one or more symbols' full source in one call. JSON payload. Batch several files (or several symbols) into ONE call — one call per file/symbol wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips. Small files come back raw automatically — never worse than reading the file.",
+		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one or more symbols' full source in one call. JSON payload. Batch several files (or several symbols) into ONE call — one call per file/symbol wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips. Small files come back raw automatically — never worse than reading the file. Repeating an identical call within a few minutes returns a short 'already returned' stub; pass force:true only when you genuinely need the content again.",
 		Annotations: annotations(false),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in codeInput) (*mcp.CallToolResult, any, error) {
 		symbols := in.Symbols
@@ -135,6 +136,7 @@ func registerTools(s *mcp.Server) {
 			Symbols:      symbols,
 			ExportedOnly: in.Exported,
 			API:          in.API,
+			Force:        in.Force,
 			Format:       jsonFormat,
 		}, &buf); err != nil {
 			return nil, nil, err
