@@ -73,6 +73,11 @@ func underTest() bool {
 	return len(os.Args) > 0 && strings.HasSuffix(os.Args[0], ".test")
 }
 
+// UnderTest exports underTest for packages (e.g. internal/dedup) that need
+// to adjust their own behaviour under `go test` without duplicating the
+// .test-suffix check.
+func UnderTest() bool { return underTest() }
+
 // detectSource classifies who triggered the invocation, so `sf history` can
 // separate real agent traffic from a developer poking the CLI by hand or a
 // test run. Resolution order: SOFIA_SOURCE override → a test binary → Claude

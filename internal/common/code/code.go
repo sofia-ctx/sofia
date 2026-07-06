@@ -27,6 +27,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/code/gocode"
 	"github.com/sofia-ctx/sofia/internal/common/code/phpcode"
 	"github.com/sofia-ctx/sofia/internal/common/code/tscode"
+	"github.com/sofia-ctx/sofia/internal/dedup"
 	"github.com/sofia-ctx/sofia/internal/emit"
 	"github.com/sofia-ctx/sofia/internal/tokens"
 )
@@ -37,6 +38,7 @@ type Options struct {
 	ExportedOnly bool
 	API          bool     // PHP only: effective public surface (own + traits + inherited)
 	Symbols      []string // optional: slice these func/method/type/etc. from Inputs[0] (single file)
+	Force        bool     // bypass the dedup stub for a repeated call (still records itself, see internal/dedup)
 }
 
 // backend is a per-language implementation the router dispatches to.
@@ -70,6 +72,18 @@ func Run(opts Options, w io.Writer) error {
 		tracker.Finish(err)
 		return err
 	}
+
+	g := dedup.Begin("code", opts.Force, keyParts(opts)...)
+	if h := g.Hit(); h != nil {
+		dedup.WriteStub(cw, opts.Format, h)
+		emit.Footer(cw, cw.Tokens, h.Tok)
+		g.CommitStub()
+		tracker.SetSummary(map[string]any{"dedup": true, "dup_of": h.N})
+		tracker.RecordOutput(cw)
+		tracker.Finish(nil)
+		return nil
+	}
+
 	below := rawBelow()
 
 	if len(opts.Symbols) > 0 {
@@ -82,6 +96,7 @@ func Run(opts Options, w io.Writer) error {
 		})
 		if err == nil {
 			emit.Footer(cw, cw.Tokens, rawTok)
+			g.CommitFull(cw.Tokens)
 		}
 		tracker.RecordOutput(cw)
 		tracker.Finish(err)
@@ -101,10 +116,41 @@ func Run(opts Options, w io.Writer) error {
 		rawTok += b.rawTok
 	}
 	emit.Footer(cw, cw.Tokens, rawTok)
+	g.CommitFull(cw.Tokens)
 	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN})
 	tracker.RecordOutput(cw)
 	tracker.Finish(nil)
 	return nil
+}
+
+// keyParts builds the dedup key for one `sf code` call: the working
+// directory, the effective format, the exported/api flags, each requested
+// symbol, and — the part that matters most — each input's size+mtime, so
+// editing a file between two otherwise-identical calls busts the dedup and
+// the re-read goes through in full.
+func keyParts(opts Options) []string {
+	format := opts.Format
+	if format == "" {
+		format = "toon"
+	}
+	cwd, _ := os.Getwd()
+	parts := []string{
+		"cwd=" + cwd,
+		"fmt=" + format,
+		fmt.Sprintf("exported=%v", opts.ExportedOnly),
+		fmt.Sprintf("api=%v", opts.API),
+	}
+	for _, s := range opts.Symbols {
+		parts = append(parts, "sym="+s)
+	}
+	for _, p := range opts.Inputs {
+		if fi, err := os.Stat(p); err == nil {
+			parts = append(parts, fmt.Sprintf("in=%s@%d:%d", p, fi.Size(), fi.ModTime().UnixNano()))
+		} else {
+			parts = append(parts, "in="+p+"@!")
+		}
+	}
+	return parts
 }
 
 // defaultRawBelow is the raw-passthrough floor: a file smaller than this

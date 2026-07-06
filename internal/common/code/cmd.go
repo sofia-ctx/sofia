@@ -15,6 +15,7 @@ func NewCommand() *cobra.Command {
 		format   string
 		exported bool
 		api      bool
+		force    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "code <file...> | <file> <symbol...>",
@@ -58,10 +59,11 @@ the requested symbols exist, which errors.
 	}
 	cmd.Flags().BoolVar(&exported, "exported", false, "show only exported/public symbols")
 	cmd.Flags().BoolVar(&api, "api", false, "PHP: effective public API — own + trait + inherited methods (implies --exported)")
+	cmd.Flags().BoolVar(&force, "force", false, "re-emit the full output even if this exact call was answered moments ago (skip the dedup stub)")
 	cliflags.AttachFormatFlags(cmd, &format)
 
 	cmd.RunE = func(_ *cobra.Command, args []string) error {
-		opts := Options{Format: format, ExportedOnly: exported, API: api}
+		opts := Options{Format: format, ExportedOnly: exported, API: api, Force: force}
 		files, symbols, err := classifyArgs(args)
 		if err != nil {
 			return err
