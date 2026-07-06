@@ -1,10 +1,13 @@
 package plugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/sofia-ctx/sofia/internal/gitclone"
 )
 
 // Install copies a local plugin directory into the managed plugins tree
@@ -44,6 +47,76 @@ func Install(src string) (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+// originFile records where a git-installed plugin came from (see
+// InstallFromGit). Discovery ignores files it doesn't recognize, so this sits
+// alongside plugin.yaml without disturbing scanManaged.
+const originFile = ".sf-origin.json"
+
+// origin is the shape written to originFile: enough for a future `sf plugin
+// upgrade` (out of scope here) to re-clone and diff against what's installed.
+type origin struct {
+	URL    string `json:"url"`
+	Ref    string `json:"ref,omitempty"`
+	Commit string `json:"commit"`
+}
+
+// InstallFromGit shallow-clones url (optionally pinned to ref — a branch or
+// tag; see gitclone.CloneShallow) into a temporary directory and installs it
+// exactly like Install: the repo's name (gitclone.RepoName) drives the plugin
+// name through the same basename convention. The clone's .git is stripped
+// first so copyTree doesn't drag the object store into the managed dir. It
+// records provenance in <PluginsDir>/<name>/.sf-origin.json and returns the
+// installed name.
+func InstallFromGit(url, ref string) (string, error) {
+	name, err := gitclone.RepoName(url)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp("", "sofia-plugin-install-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+
+	dst := filepath.Join(tmp, name)
+	commit, err := gitclone.CloneShallow(url, ref, dst)
+	if err != nil {
+		return "", err
+	}
+	if err := os.RemoveAll(filepath.Join(dst, ".git")); err != nil {
+		return "", err
+	}
+
+	installed, err := Install(dst)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := json.MarshalIndent(origin{URL: url, Ref: ref, Commit: commit}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(PluginsDir(), installed, originFile), data, 0o644); err != nil {
+		return "", err
+	}
+	return installed, nil
+}
+
+// readOrigin loads a git-installed plugin's provenance, for cmd.go to report
+// the commit it landed on. A plugin installed from a local directory has no
+// originFile, so a missing file is a plain error, not a special case here.
+func readOrigin(name string) (origin, error) {
+	data, err := os.ReadFile(filepath.Join(PluginsDir(), name, originFile))
+	if err != nil {
+		return origin{}, err
+	}
+	var o origin
+	if err := json.Unmarshal(data, &o); err != nil {
+		return origin{}, err
+	}
+	return o, nil
 }
 
 // Uninstall removes a managed plugin's directory. It also clears any stale

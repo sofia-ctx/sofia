@@ -101,6 +101,79 @@ func TestEndToEnd_FixturePlugin(t *testing.T) {
 	})
 }
 
+// TestE2E_InstallFromGitURL drives the real sf binary through `sf plugin
+// install <git-url>`: a real local git repo, cloned over file://, must land in
+// the managed plugins dir and be visible to `sf plugin list` right after.
+func TestE2E_InstallFromGitURL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the sf binary; skipped under -short")
+	}
+	bin := buildSF(t)
+	repo := gitPluginRepo(t)
+	name := filepath.Base(repo)
+
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	res := runSF(t, bin, dataDir, logDir, "plugin", "install", "file://"+repo)
+	if res.exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "installed "+name) {
+		t.Errorf("install output unexpected:\n%s", res.stdout)
+	}
+
+	res = runSF(t, bin, dataDir, logDir, "plugin", "list")
+	if res.exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+	}
+	if !strings.Contains(res.stdout, name) || !strings.Contains(res.stdout, "enabled") {
+		t.Errorf("`sf plugin list` did not show the git-installed plugin:\n%s", res.stdout)
+	}
+}
+
+// gitPluginRepo commits the hello fixture (plugin.yaml + executable) into a
+// fresh git repo and returns its path, for cloning over file://. The repo dir
+// is named "hello" to match the fixture's executable — managedExec defaults
+// to the plugin dir's own name, and InstallFromGit names the plugin after the
+// repo (gitclone.RepoName).
+func gitPluginRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := filepath.Join(t.TempDir(), "hello")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join("testdata", "plugins", "hello")
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, _ := e.Info()
+		if err := os.WriteFile(filepath.Join(dir, e.Name()), data, info.Mode().Perm()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{
+		{"init", "--quiet"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"add", "."},
+		{"commit", "--quiet", "-m", "init"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
 func buildSF(t *testing.T) string {
 	t.Helper()
 	goBin, err := exec.LookPath("go")

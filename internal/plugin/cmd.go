@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sofia-ctx/sofia/internal/cliflags"
+	"github.com/sofia-ctx/sofia/internal/gitclone"
 )
 
 // NewCommand returns the `sf plugin` command group: discover, inspect and
@@ -30,7 +31,7 @@ metadata is cached so the command tree is built without forking any plugin.
   sf plugin disable <name>       # stop dispatching to a plugin
   sf plugin enable <name>        # undo a disable
   sf plugin update               # rescan $PATH + the managed dir, refresh cache
-  sf plugin install <dir>        # install a local plugin directory
+  sf plugin install <dir|url>    # install a local plugin dir, or clone one from git
   sf plugin uninstall <name>     # remove a managed plugin`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -135,26 +136,54 @@ func updateCmd() *cobra.Command {
 }
 
 func installCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "install <dir>",
-		Short: "Install a local plugin directory into the managed plugins dir",
+	var ref string
+	c := &cobra.Command{
+		Use:   "install <dir|git-url>",
+		Short: "Install a plugin from a local directory or a git repository",
 		Long: `install copies a local plugin directory (which must contain a plugin.yaml)
 into $XDG_DATA_HOME/sofia/plugins/<name>, where <name> is the directory's base
-name, then refreshes the cache. Installing over an existing name reinstalls it.`,
-		Args:         cliflags.ExactArgsHint(1, "install needs a source directory; try: sf plugin install ./my-plugin"),
+name, then refreshes the cache. Installing over an existing name reinstalls it.
+
+Given a git URL instead of a directory, install shallow-clones it to a temp
+dir first — the repo's name becomes the plugin name, same as a local install.
+Auth is whatever your git already trusts (ssh-agent, credential helper, …);
+sofia never sees a token.`,
+		Args:         cliflags.ExactArgsHint(1, "install needs a source directory or git URL; try: sf plugin install ./my-plugin"),
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
-			name, err := Install(args[0])
+			src := args[0]
+			if !gitclone.IsURL(src) {
+				if ref != "" {
+					return fmt.Errorf("--ref only applies to a git URL, not a local directory")
+				}
+				name, err := Install(src)
+				if err != nil {
+					return err
+				}
+				if _, err := Update(); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stdout, "installed %s\n", name)
+				return nil
+			}
+
+			name, err := InstallFromGit(src, ref)
 			if err != nil {
 				return err
 			}
 			if _, err := Update(); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "installed %s\n", name)
+			commit := "unknown"
+			if o, err := readOrigin(name); err == nil {
+				commit = o.Commit
+			}
+			fmt.Fprintf(os.Stdout, "installed %s (from %s @ %.7s)\n", name, src, commit)
 			return nil
 		},
 	}
+	c.Flags().StringVar(&ref, "ref", "", "branch or tag to clone (git URLs only; commit shas not supported)")
+	return c
 }
 
 func uninstallCmd() *cobra.Command {
