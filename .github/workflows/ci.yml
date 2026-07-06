@@ -21,6 +21,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Cross-compile windows
+        run: GOOS=windows go build ./...
+
       - name: Test
         run: go test ./...
 
