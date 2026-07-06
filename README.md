@@ -363,6 +363,8 @@ sf cc resume myproject             # a tiny brief for a cheap session restart
 sf cc prompts myproject            # human turns only, in full
 sf cc bash myproject --category db # executed commands: deduped, categorised, counted
 sf cc candidates --project myproject # tool candidates: what's repeated/expensive
+sf cc value                        # weekly $ delta + token-type breakdown, from your own transcripts
+sf cc value --quota                # subscription angle: sf's own token savings, last 7 days
 ```
 
 A session selector resolves everywhere the same way as an xref lookup:
@@ -383,6 +385,14 @@ A session selector resolves everywhere the same way as an xref lookup:
   (tokens per tool), `repeated_commands`, `repeated_reads`. This is
   "measure the value before building" as a command — how the next tool
   candidates get found.
+- **`value`** — your own weekly $ delta and token-type breakdown, from
+  Claude Code's own transcripts
+  ([docs/measurements/tools/cc-value.md](docs/measurements/tools/cc-value.md)).
+  On a flat-fee subscription plan there's no $ to save, so `--quota` swaps
+  in a different report: it reads sf's own `calls.jsonl` (not your
+  transcripts) and shows how many output tokens sf handed back to you
+  instead of a raw read/grep/diff, plus the single busiest 5-hour window —
+  the actual unit a subscription's quota resets on.
 
 ### Output format
 

@@ -86,6 +86,32 @@ seconds — the same order as `cc ls`/`cc candidates` over full history.
   previous window and continued into the current one falls entirely into
   whichever window it ended in.
 
+## `--quota`: the subscription angle
+
+Everything above answers "how much did I spend" — meaningless on a flat-fee
+Claude subscription, where the thing that actually runs out is the rolling
+5-hour usage window, not $. `--quota` is a different report for that case:
+it reads sf's own telemetry (`calllog.Read()`, the same `calls.jsonl` behind
+`sf history`), filtered to `source=agent` (real tool traffic; manual/test
+runs are excluded) within the last `--days` days, and asks how many output
+tokens sf actually handed back vs. what the same calls would have cost raw.
+
+A per-entry savings baseline exists only when the summary carries `tok_raw`
+(a full `sf code` call) or `tok_rep` (a dedup stub — the original call's
+cost); `saved = max(baseline − out_tokens, 0)`, clamped so a compact
+summary that happened to lose to raw never reports a negative saving.
+Entries without either field — `grep`/`changed` (no single raw baseline) or
+log lines written before this field existed — still count toward the call
+and emitted-token totals, but contribute zero to the savings math: never
+guessed. The report also names the single busiest 5-hour window by saved
+tokens (a sliding-window scan, not a fixed clock grid) — the same span a
+subscription's quota resets on, so it's the most concrete answer to "when
+did `sf` actually stretch my usage."
+
+`--project` doesn't apply to `--quota`: `calls.jsonl` isn't grouped by
+project the way transcripts are, so combining the two flags is an error
+rather than a silently ignored one.
+
 ## Reproducing
 
 ```
@@ -94,4 +120,7 @@ sf cc value --days 21             three weeks vs three weeks
 sf cc value --project myapp       a single project
 sf cc value --format json
 sf history --tool cc.value --stats
+
+sf cc value --quota               subscription angle: sf's own token savings, last 7d
+sf cc value --quota --days 14     two weeks instead
 ```

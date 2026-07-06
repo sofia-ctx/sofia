@@ -21,6 +21,7 @@ func newValueCommand() *cobra.Command {
 		project     string
 		days        int
 		format      string
+		quota       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "value",
@@ -38,19 +39,37 @@ the preceding window of the same length.
 Pricing is a hardcoded snapshot (see docs/measurements/tools/cc-value.md) — sessions
 on a model not in the table are counted in tokens but excluded from $ and
 reported separately as unpriced, never guessed. Telemetry stays local:
-this reads your own ~/.claude/projects transcripts and prints to stdout.`,
+this reads your own ~/.claude/projects transcripts and prints to stdout.
+
+--quota is a different report for a different plan: on a Claude subscription
+there's no $ to save, so it reads sf's OWN telemetry (calls.jsonl, source=agent
+only — real tool traffic, not manual/test runs) and reports how many output
+tokens sf actually handed back vs. what those same calls would have cost raw,
+including the single busiest 5-hour span (the subscription's own quota
+window). --project doesn't apply to --quota (calls.jsonl isn't project-scoped
+the way transcripts are) — pass --days as usual.
+
+  sf cc value --quota            last 7 days of sf's own call log
+  sf cc value --quota --days 14  two weeks instead`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
 	cmd.Flags().StringVar(&projectsDir, "projects-dir", "", "Claude Code projects root (overrides $CC_PROJECTS_DIR)")
-	cmd.Flags().StringVar(&project, "project", "", "filter by project (substring of dir name or cwd)")
+	cmd.Flags().StringVar(&project, "project", "", "filter by project (substring of dir name or cwd) — $ report only")
 	cmd.Flags().IntVar(&days, "days", 7, "window size in days (current vs the preceding window of the same size)")
+	cmd.Flags().BoolVar(&quota, "quota", false, "report sf's own token savings (subscription quota angle) instead of $")
 	cliflags.AttachFormatFlags(cmd, &format)
 	_ = cmd.RegisterFlagCompletionFunc("projects-dir", cliflags.DirOnly)
 
-	cmd.RunE = func(_ *cobra.Command, _ []string) error {
+	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		if days <= 0 {
 			return fmt.Errorf("--days must be positive, got %d", days)
+		}
+		if quota {
+			if c.Flags().Changed("project") {
+				return fmt.Errorf("--project applies to the $ report only")
+			}
+			return runQuota(days, format, os.Stdout)
 		}
 		dir, err := ProjectsDir(projectsDir)
 		if err != nil {

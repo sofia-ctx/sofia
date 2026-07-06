@@ -1,6 +1,7 @@
 package cc
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -114,6 +115,32 @@ func TestBuildValueNoPreviousCostAvoidsDivByZero(t *testing.T) {
 	}
 	if v.DeltaUSD != v.Current.CostUSD {
 		t.Errorf("DeltaUSD = %v, want equal to Current.CostUSD (%v)", v.DeltaUSD, v.Current.CostUSD)
+	}
+}
+
+// TestValueQuotaFlagRegistered locks --quota's presence and its off-by-default,
+// so the $ report stays the command's default behaviour.
+func TestValueQuotaFlagRegistered(t *testing.T) {
+	f := newValueCommand().Flags().Lookup("quota")
+	if f == nil {
+		t.Fatal("expected --quota flag to be registered")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--quota default = %q, want false", f.DefValue)
+	}
+}
+
+// TestValueQuotaProjectConflict: --project filters Claude Code transcripts,
+// which the quota report never reads (it reads calls.jsonl instead) — the
+// combination must error rather than silently ignore one of the two flags.
+func TestValueQuotaProjectConflict(t *testing.T) {
+	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
+	cmd := newValueCommand()
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"--quota", "--project", "myapp"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--project applies to the $ report only") {
+		t.Fatalf("err = %v, want the --project/--quota conflict message", err)
 	}
 }
 
