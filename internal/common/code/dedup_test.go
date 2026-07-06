@@ -210,6 +210,68 @@ func TestCodeStubCalllogSummary(t *testing.T) {
 	if !ok || dupOf != 1 {
 		t.Errorf("dup_of = %v, want 1", last.Summary["dup_of"])
 	}
+	// tok_rep: what the identical full answer cost when first produced — the
+	// stub's savings baseline (gap #1, see `sf cc value --quota`).
+	tokRep, ok := last.Summary["tok_rep"].(float64)
+	if !ok || tokRep <= 0 {
+		t.Errorf("tok_rep = %v, want a positive float64", last.Summary["tok_rep"])
+	}
+}
+
+// TestCodeSummaryRecordsRawTokens locks gap #1 shut: the footer already
+// prints the raw-equivalent token estimate, but until now it never made it
+// into the log. Both full-file summary paths (single- and multi-file) must
+// carry it as tok_raw, so `sf cc value --quota` has a savings baseline to
+// compare out_tokens against.
+func TestCodeSummaryRecordsRawTokens(t *testing.T) {
+	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("SOFIA_SESSION_ID", "")
+
+	p := writeTmp(t, "big.go", bigGoSrc())
+	if err := Run(Options{Inputs: []string{p}, Format: "toon"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	entries, err := calllog.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected a call log entry")
+	}
+	last := entries[len(entries)-1]
+	tokRaw, ok := last.Summary["tok_raw"].(float64)
+	if !ok || tokRaw <= 0 {
+		t.Errorf("tok_raw = %v, want a positive float64", last.Summary["tok_raw"])
+	}
+}
+
+// TestCodeSliceSummaryRecordsRawTokens: the slice path's tok_raw is the
+// whole file's estimate, not just the sliced symbol's.
+func TestCodeSliceSummaryRecordsRawTokens(t *testing.T) {
+	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("SOFIA_SESSION_ID", "")
+	structuralOnly(t)
+
+	p := writeTmp(t, "s.go", multiGoSrc)
+	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"Foo"}}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	entries, err := calllog.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected a call log entry")
+	}
+	last := entries[len(entries)-1]
+	tokRaw, ok := last.Summary["tok_raw"].(float64)
+	if !ok || tokRaw <= 0 {
+		t.Errorf("tok_raw = %v, want a positive float64", last.Summary["tok_raw"])
+	}
 }
 
 func TestForceFlagRegistered(t *testing.T) {

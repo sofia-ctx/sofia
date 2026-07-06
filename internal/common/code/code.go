@@ -78,7 +78,10 @@ func Run(opts Options, w io.Writer) error {
 		dedup.WriteStub(cw, opts.Format, h)
 		emit.Footer(cw, cw.Tokens, h.Tok)
 		g.CommitStub()
-		tracker.SetSummary(map[string]any{"dedup": true, "dup_of": h.N})
+		// tok_rep: what the identical full answer cost when first produced —
+		// the quota report's savings baseline for a stub (see `sf cc value
+		// --quota`), same role tok_raw plays for a full call below.
+		tracker.SetSummary(map[string]any{"dedup": true, "dup_of": h.N, "tok_rep": h.Tok})
 		tracker.RecordOutput(cw)
 		tracker.Finish(nil)
 		return nil
@@ -93,6 +96,10 @@ func Run(opts Options, w io.Writer) error {
 			"symbols": len(opts.Symbols),
 			"found":   found,
 			"raw":     rawN,
+			// tok_raw: the whole-file estimate this slice was measured
+			// against — the quota report's savings baseline (see `sf cc
+			// value --quota`), not persisted until now (gap #1).
+			"tok_raw": rawTok,
 		})
 		if err == nil {
 			emit.Footer(cw, cw.Tokens, rawTok)
@@ -117,7 +124,10 @@ func Run(opts Options, w io.Writer) error {
 	}
 	emit.Footer(cw, cw.Tokens, rawTok)
 	g.CommitFull(cw.Tokens)
-	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN})
+	// tok_raw: the combined raw-file estimate the footer already compared
+	// against — recorded here so it survives past the process (gap #1: the
+	// footer prints it but the log never kept it).
+	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN, "tok_raw": rawTok})
 	tracker.RecordOutput(cw)
 	tracker.Finish(nil)
 	return nil
