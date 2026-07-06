@@ -113,6 +113,51 @@ func TestRunFooter(t *testing.T) {
 	}
 }
 
+// TestChangedDeterministic: git's own output ordering is what Collect relies
+// on (no extra sort besides the explicit sort.Strings(order) in Collect), so
+// two identical runs against the same repo state must produce byte-identical
+// output, footer included — the same invariant TestFooterDeterministic pins
+// for `sf code`.
+func TestChangedDeterministic(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	t.Setenv("SOFIA_FOOTER", "")
+	dir := t.TempDir()
+	gitT(t, dir, "init")
+	gitT(t, dir, "config", "user.email", "t@example.com")
+	gitT(t, dir, "config", "user.name", "t")
+	for _, name := range []string{"a.go", "b.php", "c.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("original\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "init")
+
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.php"), []byte("<?php\nfunction b() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func() []byte {
+		var buf bytes.Buffer
+		if err := Run(Options{Root: dir, Symbols: true, Format: "toon"}, &buf); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return buf.Bytes()
+	}
+	a, b := run(), run()
+	if !bytes.Equal(a, b) {
+		t.Errorf("two identical runs differ:\n--- first\n%s\n--- second\n%s", a, b)
+	}
+}
+
 func gitT(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

@@ -236,3 +236,29 @@ func TestRun_Footer(t *testing.T) {
 		t.Errorf("SOFIA_FOOTER=off must remove the footer:\n%s", out)
 	}
 }
+
+// TestScanDeterministic: the file walk fans out across goroutines (scan's
+// worker pool), but the result is sorted by (file, line) before rendering —
+// two identical runs must still produce byte-identical output, footer
+// included, the same invariant TestFooterDeterministic pins for `sf code`.
+func TestScanDeterministic(t *testing.T) {
+	t.Setenv("SOFIA_FOOTER", "")
+	root := scaffoldTree(t)
+	run := func() []byte {
+		var buf bytes.Buffer
+		if err := Run(Options{
+			Root:          root,
+			Patterns:      []string{"TARGET"},
+			Format:        "toon",
+			CaseSensitive: true,
+			WordBound:     true,
+		}, &buf); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return buf.Bytes()
+	}
+	a, b := run(), run()
+	if !bytes.Equal(a, b) {
+		t.Errorf("two identical runs differ:\n--- first\n%s\n--- second\n%s", a, b)
+	}
+}
