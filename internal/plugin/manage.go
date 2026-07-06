@@ -78,7 +78,7 @@ func InstallFromGit(url, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	dst := filepath.Join(tmp, name)
 	commit, err := gitclone.CloneShallow(url, ref, dst)

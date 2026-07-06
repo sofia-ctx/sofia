@@ -200,7 +200,7 @@ func resolveSource(src, ref string) (root string, source Source, cleanup func(),
 		if err != nil {
 			return "", Source{}, noop, err
 		}
-		cleanup = func() { os.RemoveAll(tmp) }
+		cleanup = func() { _ = os.RemoveAll(tmp) }
 		dst := filepath.Join(tmp, "pack")
 		commit, err := gitclone.CloneShallow(src, ref, dst)
 		if err != nil {
