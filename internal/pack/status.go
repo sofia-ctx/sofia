@@ -13,11 +13,11 @@ import (
 // Ok+Modified+Missing always add up to the receipt's total file count
 // (claude files plus every project's files).
 type PackStatus struct {
-	Name     string
-	Ok       int
-	Modified int
-	Missing  int
-	Projects []string // project roots this pack is installed in, sorted
+	Name     string   `json:"name"`
+	Ok       int      `json:"ok"`
+	Modified int      `json:"modified"`
+	Missing  int      `json:"missing"`
+	Projects []string `json:"projects,omitempty"` // project roots this pack is installed in, sorted
 }
 
 // Info gathers everything `sf pack info`/`list` show beyond drift: the
