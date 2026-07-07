@@ -17,9 +17,11 @@ import (
 	"github.com/sofia-ctx/sofia/internal/toon"
 )
 
-// Summarize writes the structural summary of the TS/Vue file at path to w. The
-// trailing flag (PHP's --api) is not meaningful for TS/Vue and is ignored.
-func Summarize(w io.Writer, path, format string, exported bool, _ bool) (map[string]any, error) {
+// Summarize writes the structural summary of the TS/Vue file at path to w.
+// api (PHP's effective-surface flag) is not meaningful for TS/Vue and is
+// ignored. brief requests the signature-only cut — see Brief for exactly
+// what it drops.
+func Summarize(w io.Writer, path, format string, exported, _, brief bool) (map[string]any, error) {
 	f, err := ReadTS(path)
 	if err != nil {
 		return nil, err
@@ -39,6 +41,9 @@ func Summarize(w io.Writer, path, format string, exported bool, _ bool) (map[str
 			}
 		}
 		f.Types = types
+	}
+	if brief {
+		f.Brief()
 	}
 	switch format {
 	case "", "toon":
@@ -78,7 +83,7 @@ type TSSymbol struct {
 type TSType struct {
 	Kind     string `json:"kind"` // interface | type | enum
 	Name     string `json:"name"`
-	Members  string `json:"members"` // "id: string; name: string" | "A, B" | union RHS
+	Members  string `json:"members,omitempty"` // "id: string; name: string" | "A, B" | union RHS — blank in Brief mode for interface/type
 	Exported bool   `json:"exported"`
 }
 
@@ -122,6 +127,20 @@ func ReadTS(path string) (*TSFile, error) {
 	}
 	parseScript(f, src)
 	return f, nil
+}
+
+// Brief collapses field/value-level detail for a signature-only view:
+// interface and type-alias bodies drop their member list — the object-shape
+// equivalent of a Go struct's fields — while enum stays (its Members is
+// already just the bare case names, no more detail than a Go const block's
+// names). Symbols carry no member/signature detail to begin with (tscode is
+// line-based and never captured one), so there's nothing left to cut there.
+func (f *TSFile) Brief() {
+	for i := range f.Types {
+		if f.Types[i].Kind == "interface" || f.Types[i].Kind == "type" {
+			f.Types[i].Members = ""
+		}
+	}
 }
 
 // vueScript returns the content of the SFC's <script> block, preferring the

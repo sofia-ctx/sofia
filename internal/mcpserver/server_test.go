@@ -180,6 +180,46 @@ func TestCallTool_CodeDedupStubAndForce(t *testing.T) {
 	}
 }
 
+// TestCallTool_CodeBriefDirInput: a directory input expands recursively over
+// MCP too, and brief:true reaches the backends (JSON payload holds both
+// files' summaries, still without member detail).
+func TestCallTool_CodeBriefDirInput(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("SOFIA_CODE_RAW_BELOW", "0") // exercise summarisation, not the tiny-file raw passthrough
+
+	dir := t.TempDir()
+	goSrc := "package sample\n\ntype Widget struct {\n\tName string `json:\"name\"`\n}\n\nfunc Hello() string { return \"hi\" }\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(goSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tsSrc := "export interface Config {\n  host: string\n}\n\nexport function boot(): void {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "b.ts"), []byte(tsSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cs := connectInMemory(ctx, t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "code",
+		Arguments: map[string]any{"files": []string{dir}, "brief": true},
+	})
+	if err != nil {
+		t.Fatalf("tools/call code: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool reported error: %s", contentText(res))
+	}
+	text := contentText(res)
+	if !strings.Contains(text, "Widget") || !strings.Contains(text, "Hello") {
+		t.Errorf("expected both the go file's type and func in the payload:\n%s", text)
+	}
+	if !strings.Contains(text, "Config") || !strings.Contains(text, "boot") {
+		t.Errorf("expected both the ts file's type and func in the payload:\n%s", text)
+	}
+	if strings.Contains(text, `json:\"name\"`) || strings.Contains(text, "host: string") {
+		t.Errorf("brief:true should omit member/field detail:\n%s", text)
+	}
+}
+
 func TestEnsureSessionEnv(t *testing.T) {
 	t.Run("sets SOFIA_SESSION_ID when no session is present", func(t *testing.T) {
 		t.Setenv("CLAUDE_CODE_SESSION_ID", "")

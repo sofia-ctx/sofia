@@ -19,15 +19,19 @@ import (
 )
 
 // Summarize writes the structural summary of the Go file at path to w in the
-// given format (toon|md|json) and returns a call-log summary map. The trailing
-// flag (PHP's --api) is not meaningful for Go and is ignored.
-func Summarize(w io.Writer, path, format string, exported bool, _ bool) (map[string]any, error) {
+// given format (toon|md|json) and returns a call-log summary map. api (PHP's
+// effective-surface flag) is not meaningful for Go and is ignored. brief
+// requests the signature-only cut — see Brief for exactly what it drops.
+func Summarize(w io.Writer, path, format string, exported, _, brief bool) (map[string]any, error) {
 	g, err := ReadGo(path)
 	if err != nil {
 		return nil, err
 	}
 	if exported {
 		g.FilterExported()
+	}
+	if brief {
+		g.Brief()
 	}
 	switch format {
 	case "", "toon":
@@ -62,7 +66,7 @@ type GoFile struct {
 type GoType struct {
 	Kind     string `json:"kind"` // struct | interface | alias | defined
 	Name     string `json:"name"`
-	Detail   string `json:"detail"` // struct fields | interface methods | underlying type
+	Detail   string `json:"detail,omitempty"` // struct fields | interface methods | underlying type — blank in Brief mode for structs
 	Exported bool   `json:"exported"`
 }
 
@@ -137,6 +141,27 @@ func (g *GoFile) FilterExported() {
 	g.Funcs = funcs
 	g.Consts = exportedValues(g.Consts)
 	g.Vars = exportedValues(g.Vars)
+}
+
+// Brief collapses field/value-level detail for a signature-only view: struct
+// field lists (and their tags) disappear — kind and name stay — while
+// interface Detail is left alone (it's already just method signatures, the
+// same level of detail as a free func's Sig). Consts and vars drop their
+// type column, leaving bare names — the const/var equivalent of a struct's
+// fields, and no more useful in a whole-package map. Composes with
+// FilterExported in either order.
+func (g *GoFile) Brief() {
+	for i := range g.Types {
+		if g.Types[i].Kind == "struct" {
+			g.Types[i].Detail = ""
+		}
+	}
+	for i := range g.Consts {
+		g.Consts[i].Type = ""
+	}
+	for i := range g.Vars {
+		g.Vars[i].Type = ""
+	}
 }
 
 func exportedValues(vs []GoValue) []GoValue {

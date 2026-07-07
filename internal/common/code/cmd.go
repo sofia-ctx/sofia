@@ -15,6 +15,7 @@ func NewCommand() *cobra.Command {
 		format   string
 		exported bool
 		api      bool
+		brief    bool
 		force    bool
 	)
 	cmd := &cobra.Command{
@@ -41,8 +42,10 @@ parallel, aggregating the output.
 Pass MULTIPLE files to summarise them together, or a directory to summarise
 every supported file under it (recursively, skipping vendor/node_modules/.git
 and friends — same defaults as sf grep), or a glob pattern (*, ?, [) — a
-whole-package map in one call. Expansion caps at 250 files — narrow the path
-if you hit that.
+whole-package map in one call. --brief drops field/member/value detail
+(struct fields, PHP properties, TS interface/type members) and keeps just
+names and signatures, for when the map covers many files. Expansion caps at
+250 files — narrow the path if you hit that.
 
 Or pass one file and one or more symbol names to slice their full source
 (signature + body) instead of the whole file — Go and PHP only; match a
@@ -55,7 +58,7 @@ directory or glob.
 
   sf code internal/server/server.go
   sf code frontend/src/api/types.ts frontend/src/router/index.ts   # several at once
-  sf code internal/plugin/                          # whole-package map (recursive)
+  sf code internal/plugin/ --brief                  # whole-package map, signatures only
   sf code src/User/Entity/User.php --exported       # public API only
   sf code vendor/acme/lib/src/FluentThing.php --api  # full surface across traits/parents
   sf code internal/server/server.go Server.Routes   # slice one method
@@ -67,11 +70,12 @@ directory or glob.
 	}
 	cmd.Flags().BoolVar(&exported, "exported", false, "show only exported/public symbols")
 	cmd.Flags().BoolVar(&api, "api", false, "PHP: effective public API — own + trait + inherited methods (implies --exported)")
+	cmd.Flags().BoolVar(&brief, "brief", false, "names and signatures only — drop field/member/value detail (for multi-file/directory maps)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-emit the full output even if this exact call was answered moments ago (skip the dedup stub)")
 	cliflags.AttachFormatFlags(cmd, &format)
 
 	cmd.RunE = func(_ *cobra.Command, args []string) error {
-		opts := Options{Format: format, ExportedOnly: exported, API: api, Force: force}
+		opts := Options{Format: format, ExportedOnly: exported, API: api, Brief: brief, Force: force}
 		files, symbols, err := classifyArgs(args)
 		if err != nil {
 			return err

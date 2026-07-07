@@ -20,12 +20,16 @@ import (
 // api is set and the file declares a class or trait, the methods block becomes
 // the effective public surface — own methods plus those composed via traits
 // and inherited from parent classes (see effectiveSurface). api implies the
-// public-only filter. The json format stays structural (machine output);
-// callers wanting the flattened surface use toon/md.
-func Summarize(w io.Writer, path, format string, exported, api bool) (map[string]any, error) {
+// public-only filter. brief drops properties and enum cases' backing values
+// (see Brief). The json format stays structural (machine output); callers
+// wanting the flattened surface use toon/md.
+func Summarize(w io.Writer, path, format string, exported, api, brief bool) (map[string]any, error) {
 	s, err := php.Read(path)
 	if err != nil {
 		return nil, err
+	}
+	if brief {
+		Brief(s)
 	}
 	apiMode := api && (s.Kind == php.KindClass || s.Kind == php.KindTrait)
 	var surface []methodVia
@@ -54,6 +58,20 @@ func Summarize(w io.Writer, path, format string, exported, api bool) (map[string
 // Slice returns the source of one named method from src.
 func Slice(src []byte, symbol string) (string, []string, error) {
 	return php.Slice(src, symbol)
+}
+
+// Brief collapses field/value-level detail for a signature-only view:
+// properties disappear entirely (they're the class-body equivalent of Go
+// struct fields), and enum cases keep their names but drop the backing value
+// — class/interface/trait name, extends/implements, constructor and method
+// signatures are all left alone, since those already sit at signature level.
+// Dropping every case's value also makes enumIsBacked report false, so
+// rendering falls through to the existing name-only cases header for free.
+func Brief(s *php.Symbol) {
+	s.Properties = nil
+	for i := range s.Cases {
+		s.Cases[i].Value = ""
+	}
 }
 
 // phpProperties returns the properties, filtered to public when exported.

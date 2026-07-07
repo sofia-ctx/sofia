@@ -50,7 +50,7 @@ func TestEffectiveSurface(t *testing.T) {
 
 func TestSummarizeAPI_TOON(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/api/Thing.php", "toon", false, true); err != nil {
+	if _, err := Summarize(&buf, "testdata/api/Thing.php", "toon", false, true, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()
@@ -67,7 +67,7 @@ func TestSummarizeAPI_TOON(t *testing.T) {
 
 func TestSummarizeAPI_Unresolved(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/api/Orphan.php", "toon", false, true); err != nil {
+	if _, err := Summarize(&buf, "testdata/api/Orphan.php", "toon", false, true, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()
@@ -83,7 +83,7 @@ func TestSummarizeAPI_Unresolved(t *testing.T) {
 // fuller surface via a single hint line (only under --exported).
 func TestSummarizeExportedHint(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/api/Thing.php", "toon", true, false); err != nil {
+	if _, err := Summarize(&buf, "testdata/api/Thing.php", "toon", true, false, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()
@@ -99,7 +99,7 @@ func TestSummarizeExportedHint(t *testing.T) {
 // the agent has to re-read the file to learn the allowed values.
 func TestSummarizeEnum_TOON(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/Status.php", "toon", false, false); err != nil {
+	if _, err := Summarize(&buf, "testdata/Status.php", "toon", false, false, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()
@@ -112,7 +112,7 @@ func TestSummarizeEnum_TOON(t *testing.T) {
 
 func TestSummarizeEnum_Markdown(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/Status.php", "md", false, false); err != nil {
+	if _, err := Summarize(&buf, "testdata/Status.php", "md", false, false, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()
@@ -127,7 +127,7 @@ func TestSummarizeEnum_Markdown(t *testing.T) {
 // `Name,""` per case would only waste tokens.
 func TestSummarizePureEnum_TOON(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Summarize(&buf, "testdata/Suit.php", "toon", false, false); err != nil {
+	if _, err := Summarize(&buf, "testdata/Suit.php", "toon", false, false, false); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	out := buf.String()

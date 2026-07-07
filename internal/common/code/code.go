@@ -40,6 +40,7 @@ type Options struct {
 	Format       string   // toon | md | json
 	ExportedOnly bool
 	API          bool     // PHP only: effective public surface (own + traits + inherited)
+	Brief        bool     // names + signatures only — drop field/member/value detail
 	Symbols      []string // optional: slice these func/method/type/etc. from Inputs[0] (single file)
 	Force        bool     // bypass the dedup stub for a repeated call (still records itself, see internal/dedup)
 }
@@ -48,7 +49,9 @@ type Options struct {
 type backend struct {
 	// summarize renders the structural summary of path to w (toon|md|json).
 	// api requests PHP's effective public surface; non-PHP backends ignore it.
-	summarize func(w io.Writer, path, format string, exported, api bool) (map[string]any, error)
+	// brief requests the signature-only cut (see each backend's own comment
+	// for what it drops).
+	summarize func(w io.Writer, path, format string, exported, api, brief bool) (map[string]any, error)
 	// slice returns one symbol's source from src; nil when unsupported.
 	slice func(src []byte, symbol string) (string, []string, error)
 }
@@ -168,6 +171,7 @@ func keyParts(opts Options) []string {
 		"fmt=" + format,
 		fmt.Sprintf("exported=%v", opts.ExportedOnly),
 		fmt.Sprintf("api=%v", opts.API),
+		fmt.Sprintf("brief=%v", opts.Brief),
 	}
 	for _, s := range opts.Symbols {
 		parts = append(parts, "sym="+s)
@@ -550,7 +554,7 @@ func renderAll(opts Options, below int64) []rendered {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			blocks[i] = renderOne(path, opts.Format, opts.ExportedOnly, opts.API, below)
+			blocks[i] = renderOne(path, opts.Format, opts.ExportedOnly, opts.API, opts.Brief, below)
 		}(i, path)
 	}
 	wg.Wait()
@@ -566,7 +570,7 @@ func renderAll(opts Options, below int64) []rendered {
 // structural detour is skipped entirely ("never worse than cat"). --api is
 // exempt for the same reason it skips the size guard below: its output
 // includes trait/parent methods the raw file doesn't contain.
-func renderOne(path, format string, exported, api bool, below int64) rendered {
+func renderOne(path, format string, exported, api, brief bool, below int64) rendered {
 	raw, _ := os.ReadFile(path)
 	rt := tokens.Estimate(string(raw))
 	if raw != nil && !api && below > 0 && int64(len(raw)) < below {
@@ -575,7 +579,7 @@ func renderOne(path, format string, exported, api bool, below int64) rendered {
 	be, _ := backendFor(path)
 
 	var compact bytes.Buffer
-	if _, err := be.summarize(&compact, path, format, exported, api); err != nil {
+	if _, err := be.summarize(&compact, path, format, exported, api, brief); err != nil {
 		if raw != nil { // graceful fallback to the raw file
 			return rendered{out: raw, rawTok: rt}
 		}
