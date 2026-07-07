@@ -33,12 +33,13 @@ metadata is cached so the command tree is built without forking any plugin.
   sf plugin enable <name>        # undo a disable
   sf plugin update               # rescan $PATH + the managed dir, refresh cache
   sf plugin install <dir|url>    # install a local plugin dir, or clone one from git
+  sf plugin upgrade [<name>]     # re-install git-installed plugin(s) from their origin
   sf plugin uninstall <name>     # remove a managed plugin`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newCmd(), listCmd(), infoCmd(), enableCmd(), disableCmd(), updateCmd(),
-		installCmd(), uninstallCmd())
+		installCmd(), upgradeCmd(), uninstallCmd())
 	return cmd
 }
 
@@ -222,6 +223,60 @@ sofia never sees a token.`,
 	}
 	c.Flags().StringVar(&ref, "ref", "", "branch or tag to clone (git URLs only; commit shas not supported)")
 	return c
+}
+
+func upgradeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "upgrade [<name>]",
+		Short: "Re-install git-installed plugins from their recorded origin",
+		Long: `upgrade re-clones a plugin from the git URL and ref it was installed with
+(recorded in .sf-origin.json by ` + "`sf plugin install <git-url>`" + `) and reports
+the commit it moved from/to. It re-clones the ref's current tip — a floating
+branch moves, a pinned tag stays put.
+
+Given no name, upgrade re-clones every managed plugin that was installed from
+git, skipping (and saying so) any that were installed from a local directory.`,
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				res, err := reinstallFromOrigin(args[0])
+				if err != nil {
+					return err
+				}
+				if _, err := Update(); err != nil {
+					return err
+				}
+				fmt.Fprint(os.Stdout, formatUpgrade(res))
+				return nil
+			}
+
+			git, local := gitInstalledPlugins(Load())
+			for _, name := range local {
+				fmt.Fprintf(os.Stdout, "skipping %s (not a git install)\n", name)
+			}
+			if len(git) == 0 {
+				fmt.Fprintln(os.Stdout, "nothing git-installed to upgrade")
+				return nil
+			}
+			results := make([]upgradeResult, 0, len(git))
+			for _, name := range git {
+				res, err := reinstallFromOrigin(name)
+				if err != nil {
+					return err
+				}
+				results = append(results, res)
+			}
+			// One rescan for the whole batch, not one per plugin.
+			if _, err := Update(); err != nil {
+				return err
+			}
+			for _, res := range results {
+				fmt.Fprint(os.Stdout, formatUpgrade(res))
+			}
+			return nil
+		},
+	}
 }
 
 func uninstallCmd() *cobra.Command {
