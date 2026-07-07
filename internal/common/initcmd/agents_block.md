@@ -3,7 +3,7 @@
 
 Before reading or searching source files (.go/.php/.ts/.tsx/.vue), prefer the `sf` CLI — structural context at a fraction of the tokens:
 
-- File shape (types, signatures, API): `sf code <file1> [file2 ...]` — batch several files into ONE call; small files come back raw automatically.
+- File shape (types, signatures, API): `sf code <file1> [file2 ...]` — batch several files into ONE call; small files come back raw automatically. Or a directory for a whole-package map: `sf code <dir> --brief`.
 - Symbol bodies: `sf code <file> <Sym1> [Sym2 ...]` — several bodies in one call.
 - Tree search: `sf grep --ext=go,php '<pattern>' [more patterns]` — capped hits, instead of `grep -rn`.
 - What changed: `sf changed [range]` — instead of a full `git diff`.
