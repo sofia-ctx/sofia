@@ -74,6 +74,31 @@ Flags: `--regex` (Go regexp), `--ext php,ts,vue`, `--ignore-dir extra,paths`,
 common `--md`/`--json` aliases. Default ignores: `vendor`, `node_modules`,
 `var`, `.git`, `dist`, `build`, `target`, `__pycache__`, IDE directories.
 
+### `sf refs` — who defines/uses a symbol, with enclosing context
+
+`sf refs <symbol>` answers "who defines/uses this symbol across the tree,
+and from where" in one call — `grep -rn <symbol>` plus opening every caller
+by hand to see what function it's in, folded into a single deterministic
+scan (Go/PHP/TS/TSX/Vue by default). Every hit is labeled `def` or `use`
+(textually — a name declared in several places shows several defs) and
+carries its enclosing function/type: AST-derived for Go, the same regex
+heuristics `sf grep` uses for PHP/TS/Vue.
+
+```bash
+sf refs Handle                 # who defines/calls Handle, across the tree
+sf refs deleteUser --ext php   # PHP only
+sf refs Enclosing --max 0      # widen past the default 30-hit cap
+```
+
+Matching is literal and word-boundary-forced (not regex — `<symbol>` must be
+a bare identifier). Output is sorted defs-first, then by file, then by line;
+capped at 30 hits by default (`Defs`/`Uses` in the header are always the
+true totals, even when the list is capped) — `--max 0` for every hit, a
+negative `--max` to remove the cap entirely.
+
+Measured on this repo's own tree
+([docs/measurements/tools/refs.md](docs/measurements/tools/refs.md)).
+
 ### `sf code` — structural summary of a source file (Go + PHP + TS/Vue)
 
 A compact structural summary of a file **without function bodies**: for Go —
@@ -111,7 +136,7 @@ files, so `sf code` is **never worse than `cat`** — "always use sf code" is
 a safe rule. `SOFIA_CODE_RAW_BELOW=<bytes>` moves the threshold; `0`
 disables the passthrough.
 
-Every `code`/`grep`/`changed` call ends with a one-line cost footer — e.g.
+Every `code`/`grep`/`refs`/`changed` call ends with a one-line cost footer — e.g.
 `# sf ≈612 tok · raw ≈3120 · saved ≈2508` — so the per-call token economics
 are visible to the agent itself; `SOFIA_FOOTER=off` hides it.
 
@@ -594,6 +619,7 @@ sofia/
 │   ├── common/initcmd/           # `sf init` — per-project onboarding (AGENTS.md, skill, hook, MCP)
 │   ├── common/packagist/         # `sf packagist` — release status + publishing
 │   ├── common/php/               # PhpSymbolReader (VKCOM/php-parser AST)
+│   ├── common/refs/              # `sf refs` — symbol def/use finder with enclosing context
 │   ├── common/vue/               # `sf vue routes` — vue-router route map
 │   ├── common/worktrees/         # `sf worktrees` — cross-project worktree overview
 │   ├── emit/                     # output budget: compact-or-raw (SmallerOf)
