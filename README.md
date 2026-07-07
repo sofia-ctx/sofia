@@ -564,6 +564,10 @@ claude:
 `sf pack list` / `info <name>` / `status [<name>]` / `uninstall <name>` round
 out the lifecycle.
 
+Writing a plugin from scratch rather than pulling one from a pack?
+`sf plugin new <name>` scaffolds a working one — see
+[docs/plugins.md](docs/plugins.md) for the 5-minute walkthrough.
+
 ## Layout
 
 ```
