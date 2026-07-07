@@ -18,7 +18,7 @@ func NewCommand() *cobra.Command {
 		force    bool
 	)
 	cmd := &cobra.Command{
-		Use:   "code <file...> | <file> <symbol...>",
+		Use:   "code <file|dir|glob...> | <file> <symbol...>",
 		Short: "Structural summary of source files, without bodies",
 		Long: `code prints a compact structure of a source file — without function
 bodies — so you needn't cat the whole file just to see its shape/API
@@ -38,16 +38,24 @@ parallel, aggregating the output.
                members, and for Vue SFCs props/emits/models, the stores and
                API calls used, and components rendered (line-based, approximate).
 
-Pass MULTIPLE files to summarise them together. Or pass one file and one or
-more symbol names to slice their full source (signature + body) instead of
-the whole file — Go and PHP only; match a func/type/const/var by name, or a
-method by name or Recv.Method / Class::method. A requested symbol that isn't
-found doesn't fail the whole call: whatever's found still comes back, with a
-comment marking what's missing (and the available names) — unless NONE of
-the requested symbols exist, which errors.
+Pass MULTIPLE files to summarise them together, or a directory to summarise
+every supported file under it (recursively, skipping vendor/node_modules/.git
+and friends — same defaults as sf grep), or a glob pattern (*, ?, [) — a
+whole-package map in one call. Expansion caps at 250 files — narrow the path
+if you hit that.
+
+Or pass one file and one or more symbol names to slice their full source
+(signature + body) instead of the whole file — Go and PHP only; match a
+func/type/const/var by name, or a method by name or Recv.Method /
+Class::method. A requested symbol that isn't found doesn't fail the whole
+call: whatever's found still comes back, with a comment marking what's
+missing (and the available names) — unless NONE of the requested symbols
+exist, which errors. Symbol slicing needs a single real file, not a
+directory or glob.
 
   sf code internal/server/server.go
   sf code frontend/src/api/types.ts frontend/src/router/index.ts   # several at once
+  sf code internal/plugin/                          # whole-package map (recursive)
   sf code src/User/Entity/User.php --exported       # public API only
   sf code vendor/acme/lib/src/FluentThing.php --api  # full surface across traits/parents
   sf code internal/server/server.go Server.Routes   # slice one method

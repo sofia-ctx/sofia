@@ -24,7 +24,7 @@ import (
 // defaults resolved via orInt/orBool.
 
 type codeInput struct {
-	Files    []string `json:"files" jsonschema:"source files to summarise structurally (.go/.php/.ts/.tsx/.vue); pass several to summarise together"`
+	Files    []string `json:"files" jsonschema:"source files, directories, or glob patterns to summarise structurally (.go/.php/.ts/.tsx/.vue); a directory expands recursively (vendor/node_modules/.git and friends skipped); pass several to summarise together (capped at 250 expanded files)"`
 	Symbol   string   `json:"symbol,omitempty" jsonschema:"with exactly one file, slice this symbol's full source (func/type/const/var, or Recv.Method / Class::method) instead of summarising the file (Go/PHP only); for more than one, use symbols instead"`
 	Symbols  []string `json:"symbols,omitempty" jsonschema:"with exactly one file, slice these symbols' full source in one call instead of summarising the file (Go/PHP only); a symbol that isn't found doesn't fail the call, it's just noted as missing"`
 	Exported bool     `json:"exported,omitempty" jsonschema:"show only exported/public symbols"`

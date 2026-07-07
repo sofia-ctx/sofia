@@ -56,10 +56,11 @@ type Result struct {
 	Skipped  int              `json:"skipped,omitempty"` // files skipped: binary or over-long lines
 }
 
-// defaultIgnoreDirs are the directories every project's grep should skip
+// DefaultIgnoreDirs are the directories every project's grep should skip
 // by default (heavy, machine-managed). Extra entries can be added via
-// Options.ExtraIgnore.
-var defaultIgnoreDirs = []string{
+// Options.ExtraIgnore. Exported so `sf code`'s directory expansion walks the
+// same tree grep does, rather than drifting with a second copy.
+var DefaultIgnoreDirs = []string{
 	"vendor", "node_modules", "var", ".git", ".idea", ".vscode",
 	".svn", ".hg", "dist", "build", "target", "__pycache__",
 }
@@ -142,8 +143,8 @@ func plainTokens(r *Result) int64 {
 }
 
 func scan(opts Options, root string) (*Result, error) {
-	ignoreDirs := make(map[string]bool, len(defaultIgnoreDirs)+len(opts.ExtraIgnore))
-	for _, d := range defaultIgnoreDirs {
+	ignoreDirs := make(map[string]bool, len(DefaultIgnoreDirs)+len(opts.ExtraIgnore))
+	for _, d := range DefaultIgnoreDirs {
 		ignoreDirs[d] = true
 	}
 	for _, d := range opts.ExtraIgnore {

@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -27,13 +28,15 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/code/gocode"
 	"github.com/sofia-ctx/sofia/internal/common/code/phpcode"
 	"github.com/sofia-ctx/sofia/internal/common/code/tscode"
+	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/dedup"
 	"github.com/sofia-ctx/sofia/internal/emit"
 	"github.com/sofia-ctx/sofia/internal/tokens"
+	"github.com/sofia-ctx/sofia/internal/walker"
 )
 
 type Options struct {
-	Inputs       []string // one or more source files
+	Inputs       []string // one or more source files, directories, or glob patterns
 	Format       string   // toon | md | json
 	ExportedOnly bool
 	API          bool     // PHP only: effective public surface (own + traits + inherited)
@@ -69,6 +72,22 @@ func Run(opts Options, w io.Writer) error {
 	cw := &calllog.Counter{W: w}
 
 	if err := validate(opts); err != nil {
+		tracker.Finish(err)
+		return err
+	}
+
+	// Directory/glob expansion is a multi-file-mode concept; slice mode's
+	// single real file is already enforced by validate above, so it skips
+	// this and keeps Inputs untouched.
+	if len(opts.Symbols) == 0 {
+		expanded, err := expandInputs(opts.Inputs)
+		if err != nil {
+			tracker.Finish(err)
+			return err
+		}
+		opts.Inputs = expanded
+	}
+	if err := checkExts(opts.Inputs); err != nil {
 		tracker.Finish(err)
 		return err
 	}
@@ -245,13 +264,168 @@ func validate(opts Options) error {
 	if len(opts.Inputs) == 0 {
 		return fmt.Errorf("sf code: need at least one file")
 	}
-	// An unsupported extension is a usage error, not a fallback case.
-	for _, p := range opts.Inputs {
+	if len(opts.Symbols) > 0 {
+		// classifyArgs (the CLI path) never builds this shape, but Options
+		// can be constructed directly (MCP), so guard it here too.
+		if len(opts.Inputs) != 1 {
+			return fmt.Errorf("sf code: symbol slicing takes exactly one file, got %d", len(opts.Inputs))
+		}
+		if looksExpandable(opts.Inputs[0]) {
+			return fmt.Errorf("sf code: symbol slicing needs one real file, not a directory or glob pattern: %s", opts.Inputs[0])
+		}
+	}
+	return nil
+}
+
+// checkExts is the ext-support check, run AFTER directory/glob expansion so
+// it sees only what will actually be summarised. Expansion itself only ever
+// emits supported-ext files, so a rejection here can only come from a
+// literal file argument the caller named directly.
+func checkExts(inputs []string) error {
+	for _, p := range inputs {
 		if !supportedExt(p) {
 			return fmt.Errorf("sf code supports Go (.go), PHP (.php), TS/Vue (.ts/.tsx/.vue); got %s", p)
 		}
 	}
 	return nil
+}
+
+// looksExpandable reports whether in would be expanded by expandInputs
+// rather than treated as a single literal file: a directory, or a glob
+// pattern that doesn't itself name an existing file.
+func looksExpandable(in string) bool {
+	if fi, err := os.Stat(in); err == nil {
+		return fi.IsDir()
+	}
+	return isGlobPattern(in)
+}
+
+func isGlobPattern(s string) bool {
+	return strings.ContainsAny(s, "*?[")
+}
+
+// maxExpandedFiles caps one call's expanded file count: past this, the
+// output would be big enough that a narrower path (or --brief) is the
+// honest answer, not a silent truncation. Fixed on purpose — no env knob.
+const maxExpandedFiles = 250
+
+// supportedExts is the extension allow-list directory/glob expansion filters
+// to — the same languages backendFor dispatches (kept as a map here so
+// walker.Options.Exts can use it directly).
+var supportedExts = map[string]bool{".go": true, ".php": true, ".ts": true, ".tsx": true, ".vue": true}
+
+// expandInputs turns each input into one or more supported-extension files:
+//   - a directory expands recursively (internal/walker, same default ignores
+//     `sf grep` uses — vendor/, node_modules/, .git/, and friends);
+//   - a glob pattern (contains *?[) that doesn't itself name an existing file
+//     expands via filepath.Glob — matched directories recurse the same way,
+//     matched files are filtered to supported extensions;
+//   - anything else (including a nonexistent literal path) passes through
+//     unchanged, so a typo'd filename still gets Run's own per-file error
+//     instead of a confusing expansion failure.
+//
+// Every file is normalised to its absolute path (backends only ever print
+// the basename, so this is invisible in the output) and duplicates across
+// inputs are dropped, keeping the first occurrence — the same file reached
+// two ways contributes once. A directory or glob that expands to nothing is
+// a named error, not a silent no-op; the merged result over 250 files is a
+// named error too, rather than a silent truncation.
+func expandInputs(inputs []string) ([]string, error) {
+	var out []string
+	seen := make(map[string]bool, len(inputs))
+	for _, in := range inputs {
+		files, err := expandOne(in)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			af, err := filepath.Abs(f)
+			if err != nil {
+				af = f
+			}
+			if seen[af] {
+				continue
+			}
+			seen[af] = true
+			out = append(out, af)
+		}
+	}
+	if len(out) > maxExpandedFiles {
+		return nil, fmt.Errorf("sf code: %d files matched — too many for one call (limit %d); narrow the path or add --brief", len(out), maxExpandedFiles)
+	}
+	return out, nil
+}
+
+// expandOne expands a single input arg; see expandInputs for the rules.
+func expandOne(in string) ([]string, error) {
+	if fi, err := os.Stat(in); err == nil {
+		if !fi.IsDir() {
+			return []string{in}, nil // literal file, whatever its extension — checkExts reports a precise error
+		}
+		files, err := walkSupported(in)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			return nil, fmt.Errorf("%s: no supported files (.go/.php/.ts/.tsx/.vue) under this directory", in)
+		}
+		return files, nil
+	}
+	if !isGlobPattern(in) {
+		return []string{in}, nil // nonexistent literal path — Run's per-file error handles it
+	}
+	matches, err := filepath.Glob(in)
+	if err != nil {
+		return nil, fmt.Errorf("%s: bad glob pattern: %w", in, err)
+	}
+	var files []string
+	for _, m := range matches {
+		fi, err := os.Stat(m)
+		if err != nil {
+			continue
+		}
+		if fi.IsDir() {
+			sub, err := walkSupported(m)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, sub...)
+			continue
+		}
+		if supportedExt(m) {
+			files = append(files, m)
+		}
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("%s: glob matched no supported files (.go/.php/.ts/.tsx/.vue)", in)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// walkSupported recursively lists supported-extension files under dir, using
+// the same default ignore dirs as `sf grep` (internal/common/grep). Sorted
+// for determinism — filesystem iteration order isn't guaranteed stable, and
+// byte-stable output is a cache feature (repeated identical calls dedup).
+func walkSupported(dir string) ([]string, error) {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	ignoreDirs := make(map[string]bool, len(grep.DefaultIgnoreDirs))
+	for _, d := range grep.DefaultIgnoreDirs {
+		ignoreDirs[d] = true
+	}
+	files, errs := walker.Files(walker.Options{Root: root, IgnoreDirs: ignoreDirs, Exts: supportedExts})
+	var out []string
+	for f := range files {
+		out = append(out, f)
+	}
+	if err := <-errs; err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // runSlices emits one or more symbols' source from a single file, in input
