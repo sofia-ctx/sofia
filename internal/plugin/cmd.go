@@ -26,6 +26,7 @@ git-subcommand convention), or a managed directory under
 $XDG_DATA_HOME/sofia/plugins/<name>/ carrying a plugin.yaml manifest. Discovered
 metadata is cached so the command tree is built without forking any plugin.
 
+  sf plugin new <name>           # scaffold a new plugin, ready to install
   sf plugin list                 # what's installed and whether it's enabled
   sf plugin info <name>          # a plugin's manifest and, if disabled, why
   sf plugin disable <name>       # stop dispatching to a plugin
@@ -36,8 +37,45 @@ metadata is cached so the command tree is built without forking any plugin.
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(listCmd(), infoCmd(), enableCmd(), disableCmd(), updateCmd(), installCmd(), uninstallCmd())
+	cmd.AddCommand(newCmd(), listCmd(), infoCmd(), enableCmd(), disableCmd(), updateCmd(),
+		installCmd(), uninstallCmd())
 	return cmd
+}
+
+func newCmd() *cobra.Command {
+	var dir string
+	c := &cobra.Command{
+		Use:   "new <name>",
+		Short: "Scaffold a working plugin in <dir>/<name>",
+		Long: `new scaffolds a working plugin at <dir>/<name> (--dir defaults to the
+current directory): a plugin.yaml manifest, an executable stub with one
+example command, and a README. The scaffold installs as-is —
+
+  sf plugin new hello
+  sf plugin install ./hello
+  sf hello greet
+
+— see docs/plugins.md for the full walkthrough.`,
+		Args:         cliflags.ExactArgsHint(1, "new needs a plugin name; try: sf plugin new <name>"),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			dst, err := Scaffold(name, dir)
+			if err != nil {
+				return err
+			}
+			// Show a "./name" style path for the common (--dir-less) case rather
+			// than filepath.Join's cleaned-away "./" prefix.
+			if dir == "" {
+				dst = "./" + name
+			}
+			fmt.Fprintf(os.Stdout, "created %s — try: sf plugin install %s\n", dst, dst)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&dir, "dir", "", "parent directory to scaffold into (default: current directory)")
+	_ = c.RegisterFlagCompletionFunc("dir", cliflags.DirOnly)
+	return c
 }
 
 func listCmd() *cobra.Command {
