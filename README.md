@@ -273,6 +273,13 @@ sf init --corporate     # AGENTS.md only — no ~/.claude or .mcp.json writes,
                         # for locked-down environments
 ```
 
+Codex CLI is wired the same way, automatically, whenever `sf init` detects
+it on the machine (`~/.codex` or `$CODEX_HOME`) — the hook and MCP server go
+into `$CODEX_HOME/config.toml`, the skill into `$HOME/.agents/skills`. See
+[docs/codex.md](docs/codex.md) for what that hook does on Codex (no `Read`
+tool — reads happen via `Bash`), manual TOML snippets, and the
+`--corporate` story under enterprise lockdown.
+
 ### `sf composer` — PHP package tree overview
 
 Compact views over the `composer.json` files in a tree instead of `cat`-ing
