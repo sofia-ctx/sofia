@@ -123,6 +123,97 @@ func ReadGo(path string) (*GoFile, error) {
 	return g, nil
 }
 
+// Decl is one top-level Go declaration's line span and a human label (its
+// signature) — sf refs uses it to name the func/type a usage sits in, the
+// .go case codectx's regex heuristic doesn't cover.
+type Decl struct {
+	StartLine, EndLine int
+	Name, Label        string
+}
+
+// EnclosingDecls parses src and returns every top-level decl (func, method,
+// type, const, var) with its 1-based inclusive line span and a signature
+// label, in source order. Best-effort: a parse error returns nil (caller
+// falls back to no enclosing), never an error — refs must survive an
+// unparseable file.
+func EnclosingDecls(src []byte) []Decl {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	line := func(p token.Pos) int { return fset.Position(p).Line }
+
+	var decls []Decl
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			label := "func "
+			if d.Recv != nil && len(d.Recv.List) > 0 {
+				label += "(" + fieldList(fset, d.Recv) + ") "
+			}
+			label += d.Name.Name + funcSig(fset, d.Type)
+			decls = append(decls, Decl{
+				StartLine: line(d.Pos()), EndLine: line(d.End()),
+				Name: d.Name.Name, Label: label,
+			})
+		case *ast.GenDecl:
+			decls = append(decls, genDecls(fset, d)...)
+		}
+	}
+	return decls
+}
+
+// genDecls expands one type/const/var GenDecl into per-spec Decls: each spec
+// gets its own line span so a hit inside one const of a block doesn't
+// spuriously map to its neighbours.
+func genDecls(fset *token.FileSet, d *ast.GenDecl) []Decl {
+	line := func(p token.Pos) int { return fset.Position(p).Line }
+	var out []Decl
+	switch d.Tok {
+	case token.TYPE:
+		for _, spec := range d.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			gt := goType(fset, ts)
+			var label string
+			switch gt.Kind {
+			case "struct", "interface":
+				label = fmt.Sprintf("type %s %s", gt.Name, gt.Kind)
+			default: // alias | defined — the underlying type says more than the kind word
+				label = fmt.Sprintf("type %s %s", gt.Name, gt.Detail)
+			}
+			out = append(out, Decl{
+				StartLine: line(spec.Pos()), EndLine: line(spec.End()),
+				Name: gt.Name, Label: label,
+			})
+		}
+	case token.CONST, token.VAR:
+		kw := "const"
+		if d.Tok == token.VAR {
+			kw = "var"
+		}
+		for _, spec := range d.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, n := range vs.Names {
+				if n.Name == "_" {
+					continue
+				}
+				out = append(out, Decl{
+					StartLine: line(spec.Pos()), EndLine: line(spec.End()),
+					Name: n.Name, Label: kw + " " + n.Name,
+				})
+			}
+		}
+	}
+	return out
+}
+
 // FilterExported drops unexported (lowercase) symbols, leaving the API view.
 func (g *GoFile) FilterExported() {
 	types := g.Types[:0]
