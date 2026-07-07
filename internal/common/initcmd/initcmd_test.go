@@ -29,6 +29,25 @@ func isolate(t *testing.T) string {
 	return dir
 }
 
+// codexIsolate points CODEX_HOME at a fresh, pre-created temp dir — the
+// "Codex on this machine" signal, mirroring isolate's CLAUDE_DIR handling.
+// Call after isolate(t). Returns the CODEX_HOME path.
+func codexIsolate(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	return dir
+}
+
+// itemsByName indexes a report's items by name for lookups in assertions.
+func itemsByName(items []Item) map[string]Item {
+	m := make(map[string]Item, len(items))
+	for _, it := range items {
+		m[it.Name] = it
+	}
+	return m
+}
+
 func TestAgentsBlockCreate(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
@@ -383,5 +402,246 @@ func TestRenderFormats(t *testing.T) {
 	var buf bytes.Buffer
 	if err := render(&buf, "bogus", res); err == nil {
 		t.Error("bogus format should error")
+	}
+}
+
+// TestCodexGate mirrors TestDetectionGates for Codex: no CODEX_HOME dir
+// means the three codex-* steps report skipped, and Claude's own items
+// (which isolate(t) leaves detected) are unaffected.
+func TestCodexGate(t *testing.T) {
+	isolate(t)
+	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "nonexistent"))
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if res.CodexOnMachine {
+		t.Error("CodexOnMachine should be false when CODEX_HOME doesn't exist")
+	}
+
+	byName := itemsByName(res.Items)
+	for _, name := range []string{"codex-hook", "codex-mcp", "codex-skill"} {
+		if got := byName[name]; got.Status != statusSkipped || got.Detail != "Codex not detected" {
+			t.Errorf("%s = %+v, want skipped/\"Codex not detected\"", name, got)
+		}
+	}
+	for _, name := range []string{"skill", "hook", "mcp"} {
+		if byName[name].Status == statusSkipped {
+			t.Errorf("%s = %+v, should not be gated by Codex's absence", name, byName[name])
+		}
+	}
+}
+
+// TestCodexConfigAppendPreservesContent covers the append path against a
+// realistic fixture: comments and an existing table survive verbatim, both
+// managed blocks land at EOF, and the pre-run bytes are backed up once.
+func TestCodexConfigAppendPreservesContent(t *testing.T) {
+	isolate(t)
+	codexHome := codexIsolate(t)
+	path := filepath.Join(codexHome, "config.toml")
+	original := "# my codex config\nmodel = \"gpt-5\"\n\n[profiles.x]\nmodel = \"gpt-5-mini\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), original) {
+		t.Errorf("original config.toml not preserved as a verbatim prefix:\n%s", got)
+	}
+	if !strings.Contains(string(got), "sf hook pre") {
+		t.Error("hook block not appended")
+	}
+	if !strings.Contains(string(got), "[mcp_servers.sofia]") {
+		t.Error("mcp block not appended")
+	}
+
+	backup, err := os.ReadFile(path + ".sf-bak")
+	if err != nil {
+		t.Fatalf("no backup written: %v", err)
+	}
+	if string(backup) != original {
+		t.Errorf("backup = %q, want original bytes %q", backup, original)
+	}
+
+	byName := itemsByName(res.Items)
+	if byName["codex-hook"].Status != statusWritten {
+		t.Errorf("codex-hook = %+v", byName["codex-hook"])
+	}
+	if byName["codex-mcp"].Status != statusWritten {
+		t.Errorf("codex-mcp = %+v", byName["codex-mcp"])
+	}
+}
+
+// TestCodexAlreadyWired checks the no-op path: both markers already present
+// means both steps report ok and the file is left untouched byte-for-byte
+// (in particular, no backup is written for a file that wasn't modified).
+func TestCodexAlreadyWired(t *testing.T) {
+	isolate(t)
+	codexHome := codexIsolate(t)
+	path := filepath.Join(codexHome, "config.toml")
+	original := "[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n\n[[hooks.PreToolUse.hooks]]\ncommand = \"sf hook pre\"\n\n[mcp_servers.sofia]\ncommand = \"sf\"\nargs = [\"mcp\"]\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	byName := itemsByName(res.Items)
+	if byName["codex-hook"].Status != statusOK {
+		t.Errorf("codex-hook = %+v", byName["codex-hook"])
+	}
+	if byName["codex-mcp"].Status != statusOK {
+		t.Errorf("codex-mcp = %+v", byName["codex-mcp"])
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("config.toml bytes changed:\n%s", got)
+	}
+	if _, err := os.Stat(path + ".sf-bak"); err == nil {
+		t.Error("a backup was written even though nothing changed")
+	}
+}
+
+// TestCodexConfigCreated covers the missing-file path: config.toml doesn't
+// exist yet, so it's created containing both blocks and no backup is made
+// (there was nothing to back up).
+func TestCodexConfigCreated(t *testing.T) {
+	isolate(t)
+	codexHome := codexIsolate(t)
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	path := filepath.Join(codexHome, "config.toml")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("config.toml not created: %v", err)
+	}
+	if !bytes.Contains(got, []byte("sf hook pre")) || !bytes.Contains(got, []byte("[mcp_servers.sofia]")) {
+		t.Errorf("config.toml missing an expected block:\n%s", got)
+	}
+	if _, err := os.Stat(path + ".sf-bak"); err == nil {
+		t.Error("a backup was written for a freshly created file")
+	}
+
+	byName := itemsByName(res.Items)
+	if got := byName["codex-hook"]; got.Status != statusWritten || got.Detail != "created config.toml" {
+		t.Errorf("codex-hook = %+v", got)
+	}
+}
+
+// TestCodexSkillInstall checks the skill lands at the Codex user-level
+// skills path and behaves the same missing→written / identical→ok as the
+// Claude skill step.
+func TestCodexSkillInstall(t *testing.T) {
+	isolate(t)
+	codexIsolate(t)
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	byName := itemsByName(res.Items)
+	if byName["codex-skill"].Status != statusWritten {
+		t.Errorf("codex-skill = %+v", byName["codex-skill"])
+	}
+
+	dest := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "sf-context", "SKILL.md")
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, sofia.SkillMD) {
+		t.Fatalf("installed codex skill != bundled copy (err=%v)", err)
+	}
+
+	res2, err := execute(Options{Project: project})
+	if err != nil {
+		t.Fatalf("execute (second run): %v", err)
+	}
+	if got := itemsByName(res2.Items)["codex-skill"]; got.Status != statusOK {
+		t.Errorf("second run codex-skill = %+v, want ok", got)
+	}
+}
+
+// TestCorporateSkipsCodex checks --corporate reports only the agents-md
+// item, even with Codex detected on the machine — no config.toml write.
+func TestCorporateSkipsCodex(t *testing.T) {
+	isolate(t)
+	codexHome := codexIsolate(t)
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project, Corporate: true})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !res.CodexOnMachine {
+		t.Fatal("test setup: Codex should be detected")
+	}
+	if len(res.Items) != 1 || res.Items[0].Name != "agents-md" {
+		t.Errorf("items = %+v, want a single agents-md item", res.Items)
+	}
+	if _, err := os.Stat(filepath.Join(codexHome, "config.toml")); err == nil {
+		t.Error("config.toml was written despite --corporate")
+	}
+}
+
+// TestCodexConfigTOMLShape asserts the appended blocks keep config.toml
+// structurally valid TOML, without pulling in a TOML parser dependency: the
+// repo carries no TOML library (go.mod only has yaml.v3, used for other
+// config formats), and adding one just for this one test isn't worth a new
+// dependency. Instead this checks every appended line is one of the shapes
+// valid top-level TOML permits: blank, a comment, a "[table]" or
+// "[[array-of-tables]]" header, or a "key = value" pair.
+func TestCodexConfigTOMLShape(t *testing.T) {
+	isolate(t)
+	codexHome := codexIsolate(t)
+	project := t.TempDir()
+
+	if _, err := execute(Options{Project: project}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(got), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "":
+		case strings.HasPrefix(line, "#"):
+		case strings.HasPrefix(line, "[[") && strings.HasSuffix(line, "]]"):
+		case strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]"):
+		case strings.Contains(line, "="):
+		default:
+			t.Errorf("line %q is not a valid top-level TOML construct", line)
+		}
+	}
+	if !strings.Contains(string(got), `matcher = "^Bash$"`) {
+		t.Error("hook matcher missing")
+	}
+	if !strings.Contains(string(got), `args = ["mcp"]`) {
+		t.Error("mcp args missing")
 	}
 }

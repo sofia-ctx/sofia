@@ -1,10 +1,11 @@
 // Package initcmd implements `sf init` — one-shot per-project onboarding
 // that wires sf up for a project's coding agents: a managed block in
 // AGENTS.md, the sf-context skill, the PreToolUse hook, and MCP server
-// registration. Steps beyond the AGENTS.md block are gated on whether
-// Claude Code is detected on the machine and/or in the project, and
-// --corporate skips all of them for locked-down environments where only
-// instruction files are writable.
+// registration — for both Claude Code and Codex CLI, each gated on its own
+// detection. Steps beyond the AGENTS.md block are gated on whether Claude
+// Code and/or Codex are detected on the machine (and/or, for Claude, in the
+// project), and --corporate skips all of them for locked-down environments
+// where only instruction files are writable.
 package initcmd
 
 import (
@@ -34,6 +35,13 @@ const (
 //go:embed agents_block.md
 var agentsBlock string
 
+// codexHookBlock/codexMCPBlock are appended verbatim to $CODEX_HOME/config.toml
+// — never parsed or rewritten, see codexAppendStep.
+const (
+	codexHookBlock = "\n# sf:hook:begin — managed by `sf init`\n[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"sf hook pre\"\ntimeout = 10\n# sf:hook:end\n"
+	codexMCPBlock  = "\n# sf:mcp:begin — managed by `sf init`\n[mcp_servers.sofia]\ncommand = \"sf\"\nargs = [\"mcp\"]\n# sf:mcp:end\n"
+)
+
 // Status values for an Item.
 const (
 	statusWritten = "written"
@@ -53,6 +61,7 @@ type Item struct {
 type Result struct {
 	ClaudeOnMachine bool   `json:"claude_on_machine"`
 	ClaudeInProject bool   `json:"claude_in_project"`
+	CodexOnMachine  bool   `json:"codex_on_machine"`
 	Items           []Item `json:"items"`
 }
 
@@ -117,6 +126,7 @@ func execute(opts Options) (*Result, error) {
 	res := &Result{
 		ClaudeOnMachine: claudeOnMachine(),
 		ClaudeInProject: claudeInProject(project),
+		CodexOnMachine:  codexOnMachine(),
 	}
 	res.Items = append(res.Items, agentsMDStep(project))
 	if opts.Corporate {
@@ -127,19 +137,36 @@ func execute(opts Options) (*Result, error) {
 		res.Items = append(res.Items, skillStep(opts.Force))
 		res.Items = append(res.Items, hookStep())
 	} else {
-		res.Items = append(res.Items, gatedItem("skill"))
-		res.Items = append(res.Items, gatedItem("hook"))
+		res.Items = append(res.Items, gatedItem("skill", claudeNotDetected))
+		res.Items = append(res.Items, gatedItem("hook", claudeNotDetected))
 	}
 	if res.ClaudeOnMachine || res.ClaudeInProject {
 		res.Items = append(res.Items, mcpStep(project))
 	} else {
-		res.Items = append(res.Items, gatedItem("mcp"))
+		res.Items = append(res.Items, gatedItem("mcp", claudeNotDetected))
+	}
+
+	if res.CodexOnMachine {
+		guard := newCodexConfigGuard(filepath.Join(codexDir(), "config.toml"))
+		res.Items = append(res.Items, codexHookStep(guard))
+		res.Items = append(res.Items, codexMCPStep(guard))
+		res.Items = append(res.Items, codexSkillStep(opts.Force))
+	} else {
+		res.Items = append(res.Items, gatedItem("codex-hook", codexNotDetected))
+		res.Items = append(res.Items, gatedItem("codex-mcp", codexNotDetected))
+		res.Items = append(res.Items, gatedItem("codex-skill", codexNotDetected))
 	}
 	return res, nil
 }
 
-func gatedItem(name string) Item {
-	return Item{Name: name, Status: statusSkipped, Detail: "Claude Code not detected"}
+// Detail text for a step skipped because its agent isn't detected.
+const (
+	claudeNotDetected = "Claude Code not detected"
+	codexNotDetected  = "Codex not detected"
+)
+
+func gatedItem(name, detail string) Item {
+	return Item{Name: name, Status: statusSkipped, Detail: detail}
 }
 
 // resolveProject mirrors pack.resolveProject: opts.Project if set, else cwd,
@@ -181,6 +208,26 @@ func claudeInProject(project string) bool {
 	}
 	_, err := os.Stat(filepath.Join(project, "CLAUDE.md"))
 	return err == nil
+}
+
+// codexDir mirrors claudeDir: $CODEX_HOME overrides, else ~/.codex.
+func codexDir() string {
+	if d := os.Getenv("CODEX_HOME"); d != "" {
+		return d
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".codex")
+	}
+	return ".codex"
+}
+
+// codexOnMachine reports whether Codex CLI looks installed on this machine:
+// its config directory exists. There's no project-level equivalent of
+// claudeInProject — Codex's project config only applies in trusted
+// projects, which init has no way to tell from the filesystem alone.
+func codexOnMachine() bool {
+	st, err := os.Stat(codexDir())
+	return err == nil && st.IsDir()
 }
 
 // agentsMDStep writes/updates the managed sf block in the project's
@@ -227,31 +274,57 @@ func mergeAgentsMD(content string) (next, detail string) {
 	return content + "\n" + agentsBlock, "appended managed block"
 }
 
+// installSkill installs sofia.SkillMD to dest: missing → written, identical
+// → ok, differs → skipped unless force, in which case the stale/hand-edited
+// copy is overwritten. Shared by the Claude and Codex skill steps, which
+// only differ in dest and Item name.
+func installSkill(dest string, force bool, name string) Item {
+	installed, err := os.ReadFile(dest)
+	if errors.Is(err, fs.ErrNotExist) {
+		if werr := writeFileAll(dest, sofia.SkillMD, 0o644); werr != nil {
+			return Item{name, statusSkipped, fmt.Sprintf("write failed: %v", werr)}
+		}
+		return Item{name, statusWritten, "installed sf-context skill"}
+	}
+	if err != nil {
+		return Item{name, statusSkipped, fmt.Sprintf("read failed: %v", err)}
+	}
+	if bytes.Equal(installed, sofia.SkillMD) {
+		return Item{name, statusOK, "up to date"}
+	}
+	if !force {
+		return Item{name, statusSkipped, "differs from the bundled copy — --force to overwrite"}
+	}
+	if werr := os.WriteFile(dest, sofia.SkillMD, 0o644); werr != nil {
+		return Item{name, statusSkipped, fmt.Sprintf("write failed: %v", werr)}
+	}
+	return Item{name, statusWritten, "overwrote hand-edited/stale copy (--force)"}
+}
+
 // skillStep installs the sf-context skill into $CLAUDE_DIR/skills, comparing
 // against the copy embedded in the binary (sofia.SkillMD) — the same asset
 // doctor's checkSkill falls back to when there's no repo checkout to diff.
 func skillStep(force bool) Item {
 	dest := filepath.Join(claudeDir(), "skills", "sf-context", "SKILL.md")
-	installed, err := os.ReadFile(dest)
-	if errors.Is(err, fs.ErrNotExist) {
-		if werr := writeFileAll(dest, sofia.SkillMD, 0o644); werr != nil {
-			return Item{"skill", statusSkipped, fmt.Sprintf("write failed: %v", werr)}
-		}
-		return Item{"skill", statusWritten, "installed sf-context skill"}
+	return installSkill(dest, force, "skill")
+}
+
+// codexSkillStep installs the same skill where Codex looks for user-level
+// skills: $HOME/.agents/skills, the agentskills.io layout Codex's skill
+// support reads from (https://developers.openai.com/codex/skills/) — not
+// under $CODEX_HOME, which is config only.
+func codexSkillStep(force bool) Item {
+	dest := filepath.Join(codexSkillsHome(), "sf-context", "SKILL.md")
+	return installSkill(dest, force, "codex-skill")
+}
+
+// codexSkillsHome is $HOME/.agents/skills; falls back to a relative path if
+// $HOME can't be resolved, matching claudeDir's fallback style.
+func codexSkillsHome() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".agents", "skills")
 	}
-	if err != nil {
-		return Item{"skill", statusSkipped, fmt.Sprintf("read failed: %v", err)}
-	}
-	if bytes.Equal(installed, sofia.SkillMD) {
-		return Item{"skill", statusOK, "up to date"}
-	}
-	if !force {
-		return Item{"skill", statusSkipped, "differs from the bundled copy — --force to overwrite"}
-	}
-	if werr := os.WriteFile(dest, sofia.SkillMD, 0o644); werr != nil {
-		return Item{"skill", statusSkipped, fmt.Sprintf("write failed: %v", werr)}
-	}
-	return Item{"skill", statusWritten, "overwrote hand-edited/stale copy (--force)"}
+	return filepath.Join(".agents", "skills")
 }
 
 // hookStep wires the PreToolUse hook into $CLAUDE_DIR/settings.json. If the
@@ -367,6 +440,80 @@ func mcpStep(project string) Item {
 	return Item{"mcp", statusWritten, "registered sofia"}
 }
 
+// codexConfigGuard threads backup state across codex-hook and codex-mcp,
+// which both may append to the same $CODEX_HOME/config.toml: whichever of
+// the two modifies the file first backs up its pre-run bytes to
+// config.toml.sf-bak; the second must not re-back-up the now half-modified
+// file over that backup.
+type codexConfigGuard struct {
+	existed  bool
+	original []byte
+	backedUp bool
+}
+
+// newCodexConfigGuard captures path's bytes once, before either step runs.
+func newCodexConfigGuard(path string) *codexConfigGuard {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return &codexConfigGuard{}
+	}
+	return &codexConfigGuard{existed: true, original: raw}
+}
+
+// ensureBackup writes config.toml.sf-bak from the run's original bytes, once.
+func (g *codexConfigGuard) ensureBackup(path string) error {
+	if g.backedUp {
+		return nil
+	}
+	g.backedUp = true
+	return os.WriteFile(path+".sf-bak", g.original, 0o644)
+}
+
+// codexAppendStep appends a managed TOML block to $CODEX_HOME/config.toml
+// unless marker is already present. Appending a top-level table at EOF is
+// always valid TOML and never requires parsing or rewriting the user's
+// existing tables/comments — same reasoning as hookStep, TOML instead of
+// JSON. guard makes sure codex-hook and codex-mcp, which share this file,
+// only back it up once per `sf init` run.
+func codexAppendStep(name, marker, alreadyDetail, block string, guard *codexConfigGuard) Item {
+	path := filepath.Join(codexDir(), "config.toml")
+	raw, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		raw = nil
+	case err != nil:
+		return Item{name, statusSkipped, fmt.Sprintf("read failed: %v", err)}
+	case bytes.Contains(raw, []byte(marker)):
+		return Item{name, statusOK, alreadyDetail}
+	}
+
+	detail := "created config.toml"
+	if guard.existed {
+		if berr := guard.ensureBackup(path); berr != nil {
+			return Item{name, statusSkipped, fmt.Sprintf("backup failed: %v", berr)}
+		}
+		detail = "backup: config.toml.sf-bak"
+	}
+
+	next := append(append([]byte{}, raw...), []byte(block)...)
+	if werr := writeFileAll(path, next, 0o644); werr != nil {
+		return Item{name, statusSkipped, fmt.Sprintf("write failed: %v", werr)}
+	}
+	return Item{name, statusWritten, detail}
+}
+
+// codexHookStep wires the PreToolUse hook into $CODEX_HOME/config.toml —
+// same `sf hook pre` binary Claude Code calls; Codex's PreToolUse hooks use
+// an identical stdin/response contract (see docs/codex.md).
+func codexHookStep(guard *codexConfigGuard) Item {
+	return codexAppendStep("codex-hook", "sf hook pre", "already wired", codexHookBlock, guard)
+}
+
+// codexMCPStep registers the sofia MCP server in $CODEX_HOME/config.toml.
+func codexMCPStep(guard *codexConfigGuard) Item {
+	return codexAppendStep("codex-mcp", "[mcp_servers.sofia]", "already registered", codexMCPBlock, guard)
+}
+
 // asObject type-asserts v as a JSON object, treating a missing key (nil) as
 // an empty-but-valid object so a fresh hooks/mcpServers key can be created;
 // any other type is the "unrecognized shape" signal callers must not clobber.
@@ -414,6 +561,7 @@ func render(w io.Writer, format string, res *Result) error {
 func renderTOON(w io.Writer, res *Result) {
 	fmt.Fprintf(w, "# claude on machine: %s\n", yesNo(res.ClaudeOnMachine))
 	fmt.Fprintf(w, "# claude in project: %s\n", yesNo(res.ClaudeInProject))
+	fmt.Fprintf(w, "# codex on machine: %s\n", yesNo(res.CodexOnMachine))
 	fmt.Fprintf(w, "items[%d]{item,status,detail}:\n", len(res.Items))
 	for _, it := range res.Items {
 		fmt.Fprintf(w, "%s%s,%s,%s\n", toon.Indent, it.Name, it.Status, toon.Scalar(it.Detail))
@@ -421,7 +569,8 @@ func renderTOON(w io.Writer, res *Result) {
 }
 
 func renderMarkdown(w io.Writer, res *Result) {
-	fmt.Fprintf(w, "**claude on machine:** %s  \n**claude in project:** %s\n\n", yesNo(res.ClaudeOnMachine), yesNo(res.ClaudeInProject))
+	fmt.Fprintf(w, "**claude on machine:** %s  \n**claude in project:** %s  \n**codex on machine:** %s\n\n",
+		yesNo(res.ClaudeOnMachine), yesNo(res.ClaudeInProject), yesNo(res.CodexOnMachine))
 	fmt.Fprintln(w, "| Item | Status | Detail |")
 	fmt.Fprintln(w, "| --- | --- | --- |")
 	for _, it := range res.Items {
