@@ -32,6 +32,22 @@ func TestClassifyStaleness(t *testing.T) {
 	}
 }
 
+func TestCompareSkill(t *testing.T) {
+	same := []byte("# sf-context\n")
+	other := []byte("# sf-context (edited)\n")
+
+	if status, _ := compareSkill(same, same); status != statusOK {
+		t.Errorf("identical → status = %q, want %q", status, statusOK)
+	}
+	status, detail := compareSkill(other, same)
+	if status != statusWarn {
+		t.Errorf("differing → status = %q, want %q", status, statusWarn)
+	}
+	if detail == "" {
+		t.Error("detail must not be empty")
+	}
+}
+
 func TestPorcelainHasGo(t *testing.T) {
 	cases := []struct {
 		name string

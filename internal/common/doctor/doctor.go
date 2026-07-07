@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sofia-ctx/sofia"
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/internal/version"
 )
@@ -163,8 +164,9 @@ func checkSkill() Check {
 	}
 	root, err := repoRoot()
 	if err != nil {
-		c.Status = statusOK
-		c.Detail = "skill sf-context is installed (repo unavailable — not diffed)"
+		// No dev checkout to diff against (e.g. a Homebrew install) — fall
+		// back to the copy baked into the binary itself.
+		c.Status, c.Detail = compareSkill(installed, sofia.SkillMD)
 		return c
 	}
 	repo, rerr := os.ReadFile(filepath.Join(root, "skills", "sf-context", "SKILL.md"))
@@ -181,6 +183,16 @@ func checkSkill() Check {
 	c.Status = statusOK
 	c.Detail = "skill sf-context is installed and up to date"
 	return c
+}
+
+// compareSkill is the pure comparison behind the embedded-fallback branch of
+// checkSkill, split out so it's testable without faking repoRoot()'s
+// filesystem walk.
+func compareSkill(installed, embedded []byte) (status, detail string) {
+	if bytes.Equal(installed, embedded) {
+		return statusOK, "skill sf-context is installed and up to date"
+	}
+	return statusWarn, "skill sf-context is stale relative to the bundled copy — `sf init --force`"
 }
 
 // checkGripes surfaces unaddressed agent complaints about sf (see `sf gripe`).
