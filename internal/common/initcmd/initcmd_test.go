@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofia-ctx/sofia"
 )
@@ -52,7 +53,7 @@ func TestAgentsBlockCreate(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
 
-	item := agentsMDStep(project)
+	item := agentsMDStep(project, false)
 	if item.Status != statusWritten || item.Detail != "created AGENTS.md" {
 		t.Errorf("item = %+v", item)
 	}
@@ -73,7 +74,7 @@ func TestAgentsBlockAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := agentsMDStep(project)
+	item := agentsMDStep(project, false)
 	if item.Status != statusWritten || item.Detail != "appended managed block" {
 		t.Errorf("item = %+v", item)
 	}
@@ -99,7 +100,7 @@ func TestAgentsBlockReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := agentsMDStep(project)
+	item := agentsMDStep(project, false)
 	if item.Status != statusWritten || item.Detail != "replaced managed block" {
 		t.Errorf("item = %+v", item)
 	}
@@ -123,13 +124,13 @@ func TestAgentsBlockIdempotent(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
 
-	agentsMDStep(project)
+	agentsMDStep(project, false)
 	first, err := os.ReadFile(filepath.Join(project, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	item := agentsMDStep(project)
+	item := agentsMDStep(project, false)
 	if item.Status != statusOK {
 		t.Errorf("second run status = %q, want %q", item.Status, statusOK)
 	}
@@ -170,7 +171,7 @@ func TestSkillInstallFreshStaleForce(t *testing.T) {
 	dir := isolate(t)
 	dest := filepath.Join(dir, "skills", "sf-context", "SKILL.md")
 
-	item := skillStep(false)
+	item := skillStep(false, false)
 	if item.Status != statusWritten {
 		t.Fatalf("fresh install: item = %+v", item)
 	}
@@ -179,7 +180,7 @@ func TestSkillInstallFreshStaleForce(t *testing.T) {
 		t.Fatalf("installed skill != bundled copy (err=%v)", err)
 	}
 
-	item = skillStep(false)
+	item = skillStep(false, false)
 	if item.Status != statusOK {
 		t.Errorf("identical: item = %+v", item)
 	}
@@ -187,7 +188,7 @@ func TestSkillInstallFreshStaleForce(t *testing.T) {
 	if err := os.WriteFile(dest, []byte("hand-edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	item = skillStep(false)
+	item = skillStep(false, false)
 	if item.Status != statusSkipped {
 		t.Errorf("hand-edited without --force: item = %+v", item)
 	}
@@ -195,7 +196,7 @@ func TestSkillInstallFreshStaleForce(t *testing.T) {
 		t.Error("hand-edited skill was overwritten without --force")
 	}
 
-	item = skillStep(true)
+	item = skillStep(true, false)
 	if item.Status != statusWritten {
 		t.Errorf("hand-edited with --force: item = %+v", item)
 	}
@@ -212,7 +213,7 @@ func TestHookMergePreservesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := hookStep()
+	item := hookStep(false)
 	if item.Status != statusWritten {
 		t.Fatalf("item = %+v", item)
 	}
@@ -256,7 +257,7 @@ func TestHookAlreadyWired(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := hookStep()
+	item := hookStep(false)
 	if item.Status != statusOK {
 		t.Errorf("item = %+v", item)
 	}
@@ -282,7 +283,7 @@ func TestHookNullSettingsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := hookStep()
+	item := hookStep(false)
 	if item.Status != statusSkipped {
 		t.Errorf("item = %+v, want skipped", item)
 	}
@@ -297,7 +298,7 @@ func TestMcpMergePreservesServers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := mcpStep(project)
+	item := mcpStep(project, false)
 	if item.Status != statusWritten {
 		t.Fatalf("item = %+v", item)
 	}
@@ -327,7 +328,7 @@ func TestMcpAlreadyRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := mcpStep(project)
+	item := mcpStep(project, false)
 	if item.Status != statusOK {
 		t.Errorf("item = %+v", item)
 	}
@@ -342,7 +343,7 @@ func TestMcpNullFileSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item := mcpStep(project)
+	item := mcpStep(project, false)
 	if item.Status != statusSkipped {
 		t.Errorf("item = %+v, want skipped", item)
 	}
@@ -643,5 +644,135 @@ func TestCodexConfigTOMLShape(t *testing.T) {
 	}
 	if !strings.Contains(string(got), `args = ["mcp"]`) {
 		t.Error("mcp args missing")
+	}
+}
+
+// checkPaths lists every file a real (non-corporate) init run can write, for
+// TestCheckWritesNothing/TestCheckReportsAlreadyOk to snapshot.
+func checkPaths(claudeDir, codexHome, project string) []string {
+	return []string{
+		filepath.Join(project, "AGENTS.md"),
+		filepath.Join(claudeDir, "skills", "sf-context", "SKILL.md"),
+		filepath.Join(claudeDir, "settings.json"),
+		filepath.Join(project, ".mcp.json"),
+		filepath.Join(codexHome, "config.toml"),
+		filepath.Join(os.Getenv("HOME"), ".agents", "skills", "sf-context", "SKILL.md"),
+	}
+}
+
+// TestCheckWritesNothing runs --check against a fresh project with both
+// Claude and Codex detected: every actionable step must report "would", and
+// not one byte may land on disk.
+func TestCheckWritesNothing(t *testing.T) {
+	claudeDir := isolate(t)
+	codexHome := codexIsolate(t)
+	project := t.TempDir()
+
+	res, err := execute(Options{Project: project, Check: true})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	byName := itemsByName(res.Items)
+	for _, name := range []string{"agents-md", "skill", "hook", "mcp", "codex-hook", "codex-mcp", "codex-skill"} {
+		if got := byName[name]; got.Status != statusWould {
+			t.Errorf("%s = %+v, want status %q", name, got, statusWould)
+		}
+	}
+
+	for _, p := range checkPaths(claudeDir, codexHome, project) {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s was written under --check", p)
+		}
+	}
+	entries, err := os.ReadDir(claudeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("CLAUDE_DIR is not empty after --check: %v", entries)
+	}
+}
+
+// TestCheckReportsAlreadyOk runs a real init first, then --check against the
+// same project/machine state: every item should read "ok", and nothing that
+// was already written gets touched again (checked by byte content and mtime,
+// not just presence).
+func TestCheckReportsAlreadyOk(t *testing.T) {
+	claudeDir := isolate(t)
+	codexHome := codexIsolate(t)
+	project := t.TempDir()
+
+	if _, err := execute(Options{Project: project}); err != nil {
+		t.Fatalf("execute (real run): %v", err)
+	}
+
+	type snapshot struct {
+		bytes []byte
+		mtime time.Time
+	}
+	paths := checkPaths(claudeDir, codexHome, project)
+	before := make(map[string]snapshot, len(paths))
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("setup: %s missing after the real run: %v", p, err)
+		}
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[p] = snapshot{b, st.ModTime()}
+	}
+
+	res, err := execute(Options{Project: project, Check: true})
+	if err != nil {
+		t.Fatalf("execute (--check): %v", err)
+	}
+	for _, it := range res.Items {
+		if it.Status != statusOK {
+			t.Errorf("%s = %+v, want status %q", it.Name, it, statusOK)
+		}
+	}
+
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("%s vanished after --check: %v", p, err)
+		}
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(b, before[p].bytes) {
+			t.Errorf("%s bytes changed under --check", p)
+		}
+		if !st.ModTime().Equal(before[p].mtime) {
+			t.Errorf("%s mtime changed under --check", p)
+		}
+	}
+}
+
+// TestCheckReportsWouldReplace covers the "would" detail text for the one
+// step whose real-run detail varies by branch (append vs replace).
+func TestCheckReportsWouldReplace(t *testing.T) {
+	isolate(t)
+	project := t.TempDir()
+	path := filepath.Join(project, "AGENTS.md")
+	before := "# Before\n\n<!-- sf:begin -->\nSTALE CONTENT\n<!-- sf:end -->\n\n# After\n"
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	item := agentsMDStep(project, true)
+	if item.Status != statusWould || item.Detail != "would replace managed block" {
+		t.Errorf("item = %+v", item)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != before {
+		t.Errorf("AGENTS.md was modified under --check:\n%s", got)
 	}
 }

@@ -42,11 +42,13 @@ const (
 	codexMCPBlock  = "\n# sf:mcp:begin — managed by `sf init`\n[mcp_servers.sofia]\ncommand = \"sf\"\nargs = [\"mcp\"]\n# sf:mcp:end\n"
 )
 
-// Status values for an Item.
+// Status values for an Item. statusWould only appears under --check: a step
+// that would write in a real run, without having written anything.
 const (
 	statusWritten = "written"
 	statusOK      = "ok"
 	statusSkipped = "skipped"
+	statusWould   = "would"
 )
 
 // Item is one onboarding step's outcome — same shape as doctor.Check, same
@@ -62,6 +64,7 @@ type Result struct {
 	ClaudeOnMachine bool   `json:"claude_on_machine"`
 	ClaudeInProject bool   `json:"claude_in_project"`
 	CodexOnMachine  bool   `json:"codex_on_machine"`
+	Check           bool   `json:"check,omitempty"`
 	Items           []Item `json:"items"`
 }
 
@@ -70,6 +73,7 @@ type Options struct {
 	Project   string
 	Corporate bool
 	Force     bool
+	Check     bool
 	Format    string
 }
 
@@ -111,6 +115,9 @@ func logArgs(opts Options) []string {
 	if opts.Force {
 		args = append(args, "--force")
 	}
+	if opts.Check {
+		args = append(args, "--check")
+	}
 	return args
 }
 
@@ -127,30 +134,31 @@ func execute(opts Options) (*Result, error) {
 		ClaudeOnMachine: claudeOnMachine(),
 		ClaudeInProject: claudeInProject(project),
 		CodexOnMachine:  codexOnMachine(),
+		Check:           opts.Check,
 	}
-	res.Items = append(res.Items, agentsMDStep(project))
+	res.Items = append(res.Items, agentsMDStep(project, opts.Check))
 	if opts.Corporate {
 		return res, nil
 	}
 
 	if res.ClaudeOnMachine {
-		res.Items = append(res.Items, skillStep(opts.Force))
-		res.Items = append(res.Items, hookStep())
+		res.Items = append(res.Items, skillStep(opts.Force, opts.Check))
+		res.Items = append(res.Items, hookStep(opts.Check))
 	} else {
 		res.Items = append(res.Items, gatedItem("skill", claudeNotDetected))
 		res.Items = append(res.Items, gatedItem("hook", claudeNotDetected))
 	}
 	if res.ClaudeOnMachine || res.ClaudeInProject {
-		res.Items = append(res.Items, mcpStep(project))
+		res.Items = append(res.Items, mcpStep(project, opts.Check))
 	} else {
 		res.Items = append(res.Items, gatedItem("mcp", claudeNotDetected))
 	}
 
 	if res.CodexOnMachine {
 		guard := newCodexConfigGuard(filepath.Join(codexDir(), "config.toml"))
-		res.Items = append(res.Items, codexHookStep(guard))
-		res.Items = append(res.Items, codexMCPStep(guard))
-		res.Items = append(res.Items, codexSkillStep(opts.Force))
+		res.Items = append(res.Items, codexHookStep(guard, opts.Check))
+		res.Items = append(res.Items, codexMCPStep(guard, opts.Check))
+		res.Items = append(res.Items, codexSkillStep(opts.Force, opts.Check))
 	} else {
 		res.Items = append(res.Items, gatedItem("codex-hook", codexNotDetected))
 		res.Items = append(res.Items, gatedItem("codex-mcp", codexNotDetected))
@@ -234,10 +242,15 @@ func codexOnMachine() bool {
 // AGENTS.md. Missing file → created with exactly the block; a file without
 // markers → the block is appended; a file with markers → the span between
 // (and including) them is replaced in place, everything else untouched.
-func agentsMDStep(project string) Item {
+// Under check, the decision is made the same way but the write never
+// happens — the Item just says what would have.
+func agentsMDStep(project string, check bool) Item {
 	path := filepath.Join(project, "AGENTS.md")
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		if check {
+			return Item{"agents-md", statusWould, "would create AGENTS.md"}
+		}
 		if werr := os.WriteFile(path, []byte(agentsBlock), 0o644); werr != nil {
 			return Item{"agents-md", statusSkipped, fmt.Sprintf("write failed: %v", werr)}
 		}
@@ -248,14 +261,21 @@ func agentsMDStep(project string) Item {
 	}
 
 	content := string(existing)
-	next, detail := mergeAgentsMD(content)
+	next, replaced := mergeAgentsMD(content)
 	if next == content {
 		return Item{"agents-md", statusOK, "already up to date"}
+	}
+	action, doneDetail := "append managed block", "appended managed block"
+	if replaced {
+		action, doneDetail = "replace managed block", "replaced managed block"
+	}
+	if check {
+		return Item{"agents-md", statusWould, "would " + action}
 	}
 	if werr := os.WriteFile(path, []byte(next), 0o644); werr != nil {
 		return Item{"agents-md", statusSkipped, fmt.Sprintf("write failed: %v", werr)}
 	}
-	return Item{"agents-md", statusWritten, detail}
+	return Item{"agents-md", statusWritten, doneDetail}
 }
 
 // mergeAgentsMD computes the next AGENTS.md content given its current
@@ -264,23 +284,27 @@ func agentsMDStep(project string) Item {
 // bytes right after the old end marker already supply it), else append a
 // blank line plus the block. Pure and separately testable from the
 // idempotence it's meant to guarantee.
-func mergeAgentsMD(content string) (next, detail string) {
+func mergeAgentsMD(content string) (next string, replaced bool) {
 	beginIdx := strings.Index(content, beginMarker)
 	endIdx := strings.Index(content, endMarker)
 	if beginIdx >= 0 && endIdx > beginIdx {
 		core := strings.TrimRight(agentsBlock, "\n")
-		return content[:beginIdx] + core + content[endIdx+len(endMarker):], "replaced managed block"
+		return content[:beginIdx] + core + content[endIdx+len(endMarker):], true
 	}
-	return content + "\n" + agentsBlock, "appended managed block"
+	return content + "\n" + agentsBlock, false
 }
 
 // installSkill installs sofia.SkillMD to dest: missing → written, identical
 // → ok, differs → skipped unless force, in which case the stale/hand-edited
 // copy is overwritten. Shared by the Claude and Codex skill steps, which
-// only differ in dest and Item name.
-func installSkill(dest string, force bool, name string) Item {
+// only differ in dest and Item name. Under check, whichever branch would
+// write instead reports what it would have done.
+func installSkill(dest string, force, check bool, name string) Item {
 	installed, err := os.ReadFile(dest)
 	if errors.Is(err, fs.ErrNotExist) {
+		if check {
+			return Item{name, statusWould, "would install sf-context skill"}
+		}
 		if werr := writeFileAll(dest, sofia.SkillMD, 0o644); werr != nil {
 			return Item{name, statusSkipped, fmt.Sprintf("write failed: %v", werr)}
 		}
@@ -293,7 +317,12 @@ func installSkill(dest string, force bool, name string) Item {
 		return Item{name, statusOK, "up to date"}
 	}
 	if !force {
+		// A real run wouldn't write here either, so this stays "skipped"
+		// under --check too — it's what --force is for, not --check.
 		return Item{name, statusSkipped, "differs from the bundled copy — --force to overwrite"}
+	}
+	if check {
+		return Item{name, statusWould, "would overwrite hand-edited/stale copy (--force)"}
 	}
 	if werr := os.WriteFile(dest, sofia.SkillMD, 0o644); werr != nil {
 		return Item{name, statusSkipped, fmt.Sprintf("write failed: %v", werr)}
@@ -304,18 +333,18 @@ func installSkill(dest string, force bool, name string) Item {
 // skillStep installs the sf-context skill into $CLAUDE_DIR/skills, comparing
 // against the copy embedded in the binary (sofia.SkillMD) — the same asset
 // doctor's checkSkill falls back to when there's no repo checkout to diff.
-func skillStep(force bool) Item {
+func skillStep(force, check bool) Item {
 	dest := filepath.Join(claudeDir(), "skills", "sf-context", "SKILL.md")
-	return installSkill(dest, force, "skill")
+	return installSkill(dest, force, check, "skill")
 }
 
 // codexSkillStep installs the same skill where Codex looks for user-level
 // skills: $HOME/.agents/skills, the agentskills.io layout Codex's skill
 // support reads from (https://developers.openai.com/codex/skills/) — not
 // under $CODEX_HOME, which is config only.
-func codexSkillStep(force bool) Item {
+func codexSkillStep(force, check bool) Item {
 	dest := filepath.Join(codexSkillsHome(), "sf-context", "SKILL.md")
-	return installSkill(dest, force, "codex-skill")
+	return installSkill(dest, force, check, "codex-skill")
 }
 
 // codexSkillsHome is $HOME/.agents/skills; falls back to a relative path if
@@ -332,8 +361,10 @@ func codexSkillsHome() string {
 // checkHook uses — it's left alone. Otherwise the file is decoded, the
 // hooks.PreToolUse array is created or extended (never touching an
 // unrecognized shape), and a .sf-bak copy of the pre-existing file is made
-// before the first write.
-func hookStep() Item {
+// before the first write. Under check, the decode/shape checks still run (so
+// an unrecognized shape is still reported as skipped, same as a real run)
+// but nothing — not even the .sf-bak backup — is written.
+func hookStep(check bool) Item {
 	dir := claudeDir()
 	path := filepath.Join(dir, "settings.json")
 	raw, err := os.ReadFile(path)
@@ -365,6 +396,11 @@ func hookStep() Item {
 	if !ok {
 		return Item{"hook", statusSkipped, "unrecognized settings.json shape — wire manually, see README"}
 	}
+
+	if check {
+		return Item{"hook", statusWould, "would wire PreToolUse hook"}
+	}
+
 	preList = append(preList, map[string]any{
 		"matcher": "Read|Bash",
 		"hooks": []any{
@@ -393,13 +429,17 @@ func hookStep() Item {
 }
 
 // mcpStep registers the sofia MCP server in <project>/.mcp.json, preserving
-// any servers already declared there.
-func mcpStep(project string) Item {
+// any servers already declared there. Under check, both branches that would
+// otherwise write instead report the same "would register sofia" outcome.
+func mcpStep(project string, check bool) Item {
 	path := filepath.Join(project, ".mcp.json")
 	sofiaServer := map[string]any{"command": "sf", "args": []any{"mcp"}}
 
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		if check {
+			return Item{"mcp", statusWould, "would register sofia"}
+		}
 		doc := map[string]any{"mcpServers": map[string]any{"sofia": sofiaServer}}
 		out, _ := json.MarshalIndent(doc, "", "  ")
 		if werr := os.WriteFile(path, out, 0o644); werr != nil {
@@ -426,6 +466,9 @@ func mcpStep(project string) Item {
 	}
 	if _, exists := servers["sofia"]; exists {
 		return Item{"mcp", statusOK, "already registered"}
+	}
+	if check {
+		return Item{"mcp", statusWould, "would register sofia"}
 	}
 	servers["sofia"] = sofiaServer
 	doc["mcpServers"] = servers
@@ -474,8 +517,9 @@ func (g *codexConfigGuard) ensureBackup(path string) error {
 // always valid TOML and never requires parsing or rewriting the user's
 // existing tables/comments — same reasoning as hookStep, TOML instead of
 // JSON. guard makes sure codex-hook and codex-mcp, which share this file,
-// only back it up once per `sf init` run.
-func codexAppendStep(name, marker, alreadyDetail, block string, guard *codexConfigGuard) Item {
+// only back it up once per `sf init` run — under check, guard is never
+// touched at all, since the check-gate returns before the backup/write.
+func codexAppendStep(name, marker, alreadyDetail, wouldDetail, block string, guard *codexConfigGuard, check bool) Item {
 	path := filepath.Join(codexDir(), "config.toml")
 	raw, err := os.ReadFile(path)
 	switch {
@@ -485,6 +529,10 @@ func codexAppendStep(name, marker, alreadyDetail, block string, guard *codexConf
 		return Item{name, statusSkipped, fmt.Sprintf("read failed: %v", err)}
 	case bytes.Contains(raw, []byte(marker)):
 		return Item{name, statusOK, alreadyDetail}
+	}
+
+	if check {
+		return Item{name, statusWould, wouldDetail}
 	}
 
 	detail := "created config.toml"
@@ -505,13 +553,13 @@ func codexAppendStep(name, marker, alreadyDetail, block string, guard *codexConf
 // codexHookStep wires the PreToolUse hook into $CODEX_HOME/config.toml —
 // same `sf hook pre` binary Claude Code calls; Codex's PreToolUse hooks use
 // an identical stdin/response contract (see docs/codex.md).
-func codexHookStep(guard *codexConfigGuard) Item {
-	return codexAppendStep("codex-hook", "sf hook pre", "already wired", codexHookBlock, guard)
+func codexHookStep(guard *codexConfigGuard, check bool) Item {
+	return codexAppendStep("codex-hook", "sf hook pre", "already wired", "would wire PreToolUse hook", codexHookBlock, guard, check)
 }
 
 // codexMCPStep registers the sofia MCP server in $CODEX_HOME/config.toml.
-func codexMCPStep(guard *codexConfigGuard) Item {
-	return codexAppendStep("codex-mcp", "[mcp_servers.sofia]", "already registered", codexMCPBlock, guard)
+func codexMCPStep(guard *codexConfigGuard, check bool) Item {
+	return codexAppendStep("codex-mcp", "[mcp_servers.sofia]", "already registered", "would register sofia MCP server", codexMCPBlock, guard, check)
 }
 
 // asObject type-asserts v as a JSON object, treating a missing key (nil) as
@@ -559,6 +607,9 @@ func render(w io.Writer, format string, res *Result) error {
 }
 
 func renderTOON(w io.Writer, res *Result) {
+	if res.Check {
+		fmt.Fprintln(w, "# dry run — nothing written")
+	}
 	fmt.Fprintf(w, "# claude on machine: %s\n", yesNo(res.ClaudeOnMachine))
 	fmt.Fprintf(w, "# claude in project: %s\n", yesNo(res.ClaudeInProject))
 	fmt.Fprintf(w, "# codex on machine: %s\n", yesNo(res.CodexOnMachine))
@@ -569,6 +620,10 @@ func renderTOON(w io.Writer, res *Result) {
 }
 
 func renderMarkdown(w io.Writer, res *Result) {
+	if res.Check {
+		fmt.Fprintln(w, "# dry run — nothing written")
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintf(w, "**claude on machine:** %s  \n**claude in project:** %s  \n**codex on machine:** %s\n\n",
 		yesNo(res.ClaudeOnMachine), yesNo(res.ClaudeInProject), yesNo(res.CodexOnMachine))
 	fmt.Fprintln(w, "| Item | Status | Detail |")

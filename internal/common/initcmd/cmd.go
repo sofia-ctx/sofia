@@ -11,7 +11,7 @@ import (
 // NewCommand returns the `init` Cobra command (`sf init`).
 func NewCommand() *cobra.Command {
 	var project string
-	var corporate, force bool
+	var corporate, force, check bool
 	var format string
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -35,17 +35,21 @@ and the manual TOML snippets to wire them by hand.
 
 --corporate does only step 1 — no global writes, no .claude, no .mcp.json,
 no Codex config — for locked-down environments where only instruction files
-are writable.`,
+are writable.
+
+--check reports what each step would do without writing anything — no files,
+no dirs, no .sf-bak backups.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
 	cmd.Flags().StringVar(&project, "project", "", "target project root (default: current directory)")
 	cmd.Flags().BoolVar(&corporate, "corporate", false, "only write the AGENTS.md block — no .claude/.mcp.json writes")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite a hand-edited/stale installed skill")
+	cmd.Flags().BoolVar(&check, "check", false, "report what init would do without writing anything")
 	cliflags.AttachFormatFlags(cmd, &format)
 
 	cmd.RunE = func(_ *cobra.Command, _ []string) error {
-		return Run(Options{Project: project, Corporate: corporate, Force: force, Format: format}, os.Stdout)
+		return Run(Options{Project: project, Corporate: corporate, Force: force, Check: check, Format: format}, os.Stdout)
 	}
 	return cmd
 }
