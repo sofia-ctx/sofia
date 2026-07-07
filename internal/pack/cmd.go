@@ -24,6 +24,7 @@ pack.yaml manifest — laying its artifacts onto the shelf each belongs to:
 sf plugins, Claude skills/commands, and a target project's own instructions/
 templates.
 
+  sf pack new <name>              # scaffold a new pack, ready to install
   sf pack install <git-url|dir>   # fetch/read a pack.yaml and lay it out
   sf pack list                    # installed packs: plugins, projects
   sf pack info <name>             # a pack's source, shelves and projects
@@ -32,8 +33,44 @@ templates.
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(installCmd(), listCmd(), infoCmd(), statusCmd(), uninstallCmd())
+	cmd.AddCommand(newCmd(), installCmd(), listCmd(), infoCmd(), statusCmd(), uninstallCmd())
 	return cmd
+}
+
+func newCmd() *cobra.Command {
+	var dir string
+	c := &cobra.Command{
+		Use:   "new <name>",
+		Short: "Scaffold a new, installable pack",
+		Long: `new scaffolds a pack skeleton at <dir>/<name> (--dir defaults to the
+current directory): a pack.yaml with one active instructions entry plus a
+commented example of every other section, a sample instructions/AGENTS.md,
+and a README. The scaffold installs as-is —
+
+  sf pack new my-pack
+  sf pack install ./my-pack --project /some/project
+
+— edit pack.yaml to add plugins, claude skills/commands, or templates.`,
+		Args:         cliflags.ExactArgsHint(1, "new needs a pack name; try: sf pack new <name>"),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			dst, err := Scaffold(name, dir)
+			if err != nil {
+				return err
+			}
+			// Show a "./name" style path for the common (--dir-less) case rather
+			// than filepath.Join's cleaned-away "./" prefix.
+			if dir == "" {
+				dst = "./" + name
+			}
+			fmt.Fprintf(os.Stdout, "created %s — edit pack.yaml, then: sf pack install %s\n", dst, dst)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&dir, "dir", "", "parent directory to scaffold into (default: current directory)")
+	_ = c.RegisterFlagCompletionFunc("dir", cliflags.DirOnly)
+	return c
 }
 
 func installCmd() *cobra.Command {
