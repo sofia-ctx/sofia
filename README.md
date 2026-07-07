@@ -252,6 +252,27 @@ read → narrow search → point-read a single body — for any project;
 `sf doctor` checks both the hook and the freshness of the installed skill
 copy. Philosophy and metrics — [docs/measurements/tools/hook.md](docs/measurements/tools/hook.md).
 
+### `sf init` — one-shot per-project onboarding
+
+Wires a project up for its coding agents in one pass: a managed sf block in
+`AGENTS.md` (markers `<!-- sf:begin -->`/`<!-- sf:end -->`, safe to rerun —
+it replaces its own block in place), the `sf-context` skill installed into
+`$CLAUDE_DIR/skills`, the PreToolUse hook merged into
+`$CLAUDE_DIR/settings.json` (backing up the old file to `settings.json.sf-bak`
+first), and the `sofia` MCP server registered in the project's `.mcp.json`
+(Claude Code's project-scope MCP config — nothing else installs this yet).
+The last three steps only fire when Claude Code is actually detected (on the
+machine and/or in the project); otherwise they're reported as skipped rather
+than failing the call.
+
+```bash
+sf init                # full onboarding for the current directory
+sf init --project ../other-repo
+sf init --force         # also overwrite a hand-edited installed skill
+sf init --corporate     # AGENTS.md only — no ~/.claude or .mcp.json writes,
+                        # for locked-down environments
+```
+
 ### `sf composer` — PHP package tree overview
 
 Compact views over the `composer.json` files in a tree instead of `cat`-ing
@@ -540,6 +561,7 @@ out the lifecycle.
 
 ```
 sofia/
+├── embed.go                      # go:embed the sf-context skill (package sofia; used when there's no repo checkout)
 ├── cmd/                          # Go binary entry points (one per tool)
 │   ├── sf/                       # master CLI with all subcommands
 │   └── common/<tool>/            # standalone binaries: grep, cc, code, changed, doctor,
@@ -558,6 +580,7 @@ sofia/
 │   ├── common/grep/              # `sf grep` — cross-project search
 │   ├── common/gripe/             # `sf gripe` — feedback on silent misses
 │   ├── common/hook/              # `sf hook pre` — PreToolUse guard for the Read channel
+│   ├── common/initcmd/           # `sf init` — per-project onboarding (AGENTS.md, skill, hook, MCP)
 │   ├── common/packagist/         # `sf packagist` — release status + publishing
 │   ├── common/php/               # PhpSymbolReader (VKCOM/php-parser AST)
 │   ├── common/vue/               # `sf vue routes` — vue-router route map
