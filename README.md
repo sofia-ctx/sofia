@@ -590,7 +590,9 @@ claude:
 out the lifecycle.
 
 `sf pack new <name>` scaffolds a new, installable pack skeleton to build one
-from scratch.
+from scratch. Already have a project set up the way you like it? `sf pack
+export <name>` captures its AGENTS.md and installed plugins into a new pack,
+ready to install elsewhere or share.
 
 Writing a plugin from scratch rather than pulling one from a pack?
 `sf plugin new <name>` scaffolds a working one — see

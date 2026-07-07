@@ -25,6 +25,7 @@ sf plugins, Claude skills/commands, and a target project's own instructions/
 templates.
 
   sf pack new <name>              # scaffold a new pack, ready to install
+  sf pack export <name>           # capture this project's AGENTS.md + plugins into a pack
   sf pack install <git-url|dir>   # fetch/read a pack.yaml and lay it out
   sf pack list                    # installed packs: plugins, projects
   sf pack info <name>             # a pack's source, shelves and projects
@@ -33,7 +34,7 @@ templates.
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(newCmd(), installCmd(), listCmd(), infoCmd(), statusCmd(), uninstallCmd())
+	cmd.AddCommand(newCmd(), exportCmd(), installCmd(), listCmd(), infoCmd(), statusCmd(), uninstallCmd())
 	return cmd
 }
 
@@ -71,6 +72,55 @@ and a README. The scaffold installs as-is —
 	c.Flags().StringVar(&dir, "dir", "", "parent directory to scaffold into (default: current directory)")
 	_ = c.RegisterFlagCompletionFunc("dir", cliflags.DirOnly)
 	return c
+}
+
+func exportCmd() *cobra.Command {
+	var project, out string
+	var force bool
+	c := &cobra.Command{
+		Use:   "export <name>",
+		Short: "Capture this project's AGENTS.md and installed plugins into a new pack",
+		Long: `export builds a new pack at <out>/<name> (--out defaults to the current
+directory) from --project's own footprint (default: the current directory):
+its AGENTS.md, if any, copied whole, and every installed managed plugin,
+copied from its canonical directory with any git provenance stripped (the
+exported pack references it by path, not git).
+
+Plugins are installed machine-globally, not per-project, so every managed
+plugin is captured — review pack.yaml afterward and trim it down to what
+this project actually needs.`,
+		Args:         cliflags.ExactArgsHint(1, "export needs a pack name; try: sf pack export <name>"),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			res, err := Export(ExportOptions{Name: name, Project: project, Out: out, Force: force})
+			if err != nil {
+				return err
+			}
+			dst := res.Dir
+			if out == "" {
+				dst = "./" + name
+			}
+			fmt.Fprintf(os.Stdout, "captured %d plugin(s), AGENTS.md: %s\n", len(res.Plugins), yesNo(res.HasAgents))
+			fmt.Fprintf(os.Stdout, "exported pack %s to %s — review pack.yaml, then: sf pack install %s --project <target>\n", name, dst, dst)
+			if len(res.Plugins) > 0 {
+				fmt.Fprintln(os.Stdout, "note: plugins are installed machine-globally, not per-project — trim pack.yaml to the ones this project actually needs")
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&project, "project", "", "project to capture (default: current directory)")
+	c.Flags().StringVar(&out, "out", "", "parent directory for the new pack (default: current directory)")
+	c.Flags().BoolVar(&force, "force", false, "overwrite an existing <out>/<name>")
+	_ = c.RegisterFlagCompletionFunc("out", cliflags.DirOnly)
+	return c
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 func installCmd() *cobra.Command {
