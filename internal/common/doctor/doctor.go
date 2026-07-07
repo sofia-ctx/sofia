@@ -8,6 +8,7 @@ package doctor
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/sofia-ctx/sofia"
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/pack"
 	"github.com/sofia-ctx/sofia/internal/version"
 )
 
@@ -121,6 +123,9 @@ func Collect(_ Options) (*Result, error) {
 		checkSkill(),
 		checkCalllog(),
 		checkGripes(),
+		checkMCP(),
+		checkCodex(),
+		checkPacks(),
 	}}, nil
 }
 
@@ -365,6 +370,136 @@ func checkCalllog() Check {
 	} else {
 		c.Detail = p + " (not created yet)"
 	}
+	return c
+}
+
+// checkMCP reports whether the sofia MCP server is registered in the current
+// directory's .mcp.json — the file `sf init` writes.
+func checkMCP() Check {
+	c := Check{Name: "mcp"}
+	wd, err := os.Getwd()
+	if err != nil {
+		c.Status = statusWarn
+		c.Detail = "can't determine the working directory"
+		return c
+	}
+	b, err := os.ReadFile(filepath.Join(wd, ".mcp.json"))
+	if err != nil {
+		c.Status = statusWarn
+		c.Detail = "no .mcp.json here — `sf init` registers the MCP server"
+		return c
+	}
+	var doc struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if json.Unmarshal(b, &doc) != nil {
+		// Malformed JSON — fall back to a raw substring check rather than
+		// reporting nothing.
+		if bytes.Contains(b, []byte("sofia")) {
+			c.Status = statusOK
+			c.Detail = "sofia MCP registered in ./.mcp.json"
+			return c
+		}
+		c.Status = statusWarn
+		c.Detail = "MCP configured here but sofia isn't registered — `sf init`"
+		return c
+	}
+	if _, ok := doc.MCPServers["sofia"]; ok {
+		c.Status = statusOK
+		c.Detail = "sofia MCP registered in ./.mcp.json"
+		return c
+	}
+	c.Status = statusWarn
+	c.Detail = "MCP configured here but sofia isn't registered — `sf init`"
+	return c
+}
+
+// codexDir mirrors initcmd.codexDir: $CODEX_HOME overrides, else ~/.codex.
+// Reimplemented locally rather than imported — doctor has no other reason to
+// depend on initcmd.
+func codexDir() string {
+	if d := os.Getenv("CODEX_HOME"); d != "" {
+		return d
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".codex")
+	}
+	return ".codex"
+}
+
+// checkCodex reports whether Codex CLI is wired to sf: the PreToolUse hook
+// and the MCP server, both appended to $CODEX_HOME/config.toml by `sf init`
+// (see initcmd.codexHookStep/codexMCPStep). Codex not being installed at all
+// is not a warning — it's simply not the agent in use here.
+func checkCodex() Check {
+	c := Check{Name: "codex"}
+	dir := codexDir()
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		c.Status = statusOK
+		c.Detail = "Codex not detected"
+		return c
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		c.Status = statusWarn
+		c.Detail = "Codex detected but sf isn't wired — `sf init`"
+		return c
+	}
+	hasHook := bytes.Contains(b, []byte("sf hook pre"))
+	hasMCP := bytes.Contains(b, []byte("[mcp_servers.sofia]"))
+	switch {
+	case hasHook && hasMCP:
+		c.Status = statusOK
+		c.Detail = "Codex hook + MCP wired"
+	case hasHook:
+		c.Status = statusWarn
+		c.Detail = "Codex: hook wired, MCP not — `sf init`"
+	case hasMCP:
+		c.Status = statusWarn
+		c.Detail = "Codex: MCP wired, hook not — `sf init`"
+	default:
+		c.Status = statusWarn
+		c.Detail = "Codex detected but sf isn't wired — `sf init`"
+	}
+	return c
+}
+
+// checkPacks surfaces drift in installed packs — files `sf pack install` put
+// down that have since been hand-edited or deleted (see internal/pack).
+// Machine-global like checkSkill's embedded fallback: it doesn't take a
+// project, since a pack's receipt already records every project it touched.
+func checkPacks() Check {
+	c := Check{Name: "packs", Status: statusOK}
+	statuses, err := pack.StatusAll()
+	if err != nil {
+		c.Status = statusWarn
+		c.Detail = "pack status unavailable: " + err.Error()
+		return c
+	}
+	if len(statuses) == 0 {
+		c.Detail = "no packs installed"
+		return c
+	}
+	var drifted []string
+	for _, s := range statuses {
+		if s.Modified == 0 && s.Missing == 0 {
+			continue
+		}
+		var parts []string
+		if s.Modified > 0 {
+			parts = append(parts, fmt.Sprintf("%d modified", s.Modified))
+		}
+		if s.Missing > 0 {
+			parts = append(parts, fmt.Sprintf("%d missing", s.Missing))
+		}
+		drifted = append(drifted, fmt.Sprintf("%s: %s", s.Name, strings.Join(parts, ", ")))
+	}
+	if len(drifted) == 0 {
+		c.Detail = fmt.Sprintf("%d pack(s), no drift", len(statuses))
+		return c
+	}
+	c.Status = statusWarn
+	c.Detail = strings.Join(drifted, "; ")
 	return c
 }
 
