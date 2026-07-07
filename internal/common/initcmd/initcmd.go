@@ -278,6 +278,11 @@ func hookStep() Item {
 	if uerr := json.Unmarshal(raw, &doc); uerr != nil {
 		return Item{"hook", statusSkipped, "unrecognized settings.json shape — wire manually, see README"}
 	}
+	if doc == nil {
+		// Valid JSON ("null") that isn't an object — same "won't clobber it"
+		// signal as any other unrecognized shape, not a nil-map write later.
+		return Item{"hook", statusSkipped, "unrecognized settings.json shape — wire manually, see README"}
+	}
 
 	hooksMap, ok := asObject(doc["hooks"])
 	if !ok {
@@ -335,6 +340,11 @@ func mcpStep(project string) Item {
 
 	var doc map[string]any
 	if uerr := json.Unmarshal(raw, &doc); uerr != nil {
+		return Item{"mcp", statusSkipped, "unrecognized .mcp.json shape — wire manually, see README"}
+	}
+	if doc == nil {
+		// Valid JSON ("null") that isn't an object — same "won't clobber it"
+		// signal as any other unrecognized shape, not a nil-map write later.
 		return Item{"mcp", statusSkipped, "unrecognized .mcp.json shape — wire manually, see README"}
 	}
 	servers, ok := asObject(doc["mcpServers"])

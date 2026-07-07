@@ -253,6 +253,22 @@ func TestHookAlreadyWired(t *testing.T) {
 	}
 }
 
+// TestHookNullSettingsSkipped guards against a nil-map panic: valid JSON
+// ("null") that isn't an object must be treated as an unrecognized shape,
+// not decoded into a nil map that a later assignment then panics on.
+func TestHookNullSettingsSkipped(t *testing.T) {
+	dir := isolate(t)
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	item := hookStep()
+	if item.Status != statusSkipped {
+		t.Errorf("item = %+v, want skipped", item)
+	}
+}
+
 func TestMcpMergePreservesServers(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
@@ -295,6 +311,21 @@ func TestMcpAlreadyRegistered(t *testing.T) {
 	item := mcpStep(project)
 	if item.Status != statusOK {
 		t.Errorf("item = %+v", item)
+	}
+}
+
+// TestMcpNullFileSkipped mirrors TestHookNullSettingsSkipped for .mcp.json.
+func TestMcpNullFileSkipped(t *testing.T) {
+	isolate(t)
+	project := t.TempDir()
+	path := filepath.Join(project, ".mcp.json")
+	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	item := mcpStep(project)
+	if item.Status != statusSkipped {
+		t.Errorf("item = %+v, want skipped", item)
 	}
 }
 
