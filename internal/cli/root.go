@@ -22,6 +22,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/hook"
 	"github.com/sofia-ctx/sofia/internal/common/initcmd"
 	"github.com/sofia-ctx/sofia/internal/common/packagist"
+	"github.com/sofia-ctx/sofia/internal/common/refs"
 	"github.com/sofia-ctx/sofia/internal/common/vue"
 	"github.com/sofia-ctx/sofia/internal/common/worktrees"
 	"github.com/sofia-ctx/sofia/internal/history"
@@ -61,7 +62,7 @@ func init() {
 			RootCmd.AddCommand(c)
 		}
 	}
-	add("context", commoncode.NewCommand(), grep.NewCommand(), changed.NewCommand(), cc.NewCommand())
+	add("context", commoncode.NewCommand(), grep.NewCommand(), refs.NewCommand(), changed.NewCommand(), cc.NewCommand())
 	add("php", composer.NewCommand(), packagist.NewCommand(), github.NewCommand())
 	add("projects", vue.NewCommand())
 	add("infra", doctor.NewCommand(), gripe.NewCommand(), history.NewCommand(), worktrees.NewCommand(), mcpserver.NewCommand(), plugin.NewCommand(), pack.NewCommand(), initcmd.NewCommand())

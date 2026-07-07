@@ -13,6 +13,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/github"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/common/packagist"
+	"github.com/sofia-ctx/sofia/internal/common/refs"
 	"github.com/sofia-ctx/sofia/internal/common/vue"
 )
 
@@ -42,6 +43,14 @@ type grepInput struct {
 	Exts          []string `json:"exts,omitempty" jsonschema:"file extensions to include, e.g. [\"php\",\"ts\",\"vue\"]; empty = all"`
 	IgnoreDirs    []string `json:"ignore_dirs,omitempty" jsonschema:"extra directory names to skip on top of the defaults (vendor, node_modules, …)"`
 	MaxPerPattern *int     `json:"max_per_pattern,omitempty" jsonschema:"limit hits per pattern (0 = unlimited; default 30)"`
+}
+
+type refsInput struct {
+	Symbol     string   `json:"symbol" jsonschema:"the identifier to find definitions and usages of (bare identifier, not a regex)"`
+	Root       string   `json:"root,omitempty" jsonschema:"directory to search (default: current working directory)"`
+	Exts       []string `json:"exts,omitempty" jsonschema:"file extensions to include, e.g. [\"go\",\"php\"]; empty = go,php,ts,tsx,vue"`
+	IgnoreDirs []string `json:"ignore_dirs,omitempty" jsonschema:"extra directory names to skip on top of the defaults (vendor, node_modules, …)"`
+	Max        *int     `json:"max,omitempty" jsonschema:"cap on refs shown, defs first (0 = default 30; negative = unlimited)"`
 }
 
 type changedInput struct {
@@ -167,6 +176,25 @@ func registerTools(s *mcp.Server) {
 		}
 		var buf bytes.Buffer
 		if err := grep.Run(opts, &buf); err != nil {
+			return nil, nil, err
+		}
+		return textResult(&buf), nil, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "refs",
+		Description: "Find where a symbol is defined and used across the tree, each usage labeled with its enclosing function/type — one call instead of grep plus opening each caller. Bare identifier, word-boundary matched (Go/PHP/TS/Vue). Prefer this over grep for 'who calls X / where is X defined'. JSON payload.",
+		Annotations: annotations(false),
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in refsInput) (*mcp.CallToolResult, any, error) {
+		var buf bytes.Buffer
+		if err := refs.Run(refs.Options{
+			Symbol:     in.Symbol,
+			Root:       in.Root,
+			Exts:       in.Exts,
+			IgnoreDirs: in.IgnoreDirs,
+			Max:        orInt(in.Max, 0),
+			Format:     jsonFormat,
+		}, &buf); err != nil {
 			return nil, nil, err
 		}
 		return textResult(&buf), nil, nil

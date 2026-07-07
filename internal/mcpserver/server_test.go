@@ -16,7 +16,7 @@ import (
 // expectedTools is the exact public-safe tool set the server must expose —
 // no private project/launch/lab tools, and none of the mutating actions.
 var expectedTools = []string{
-	"code", "grep", "changed",
+	"code", "grep", "refs", "changed",
 	"cc_ls", "cc_show", "cc_resume", "cc_prompts", "cc_bash", "cc_candidates",
 	"composer_ls", "composer_show", "composer_check",
 	"packagist_status",
