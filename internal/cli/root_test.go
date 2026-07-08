@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -44,5 +45,28 @@ func TestRootCmd_FlagErrorFuncInherited(t *testing.T) {
 		if got := c.FlagErrorFunc(); got == nil {
 			t.Errorf("subcommand %q has no inherited FlagErrorFunc", c.Name())
 		}
+	}
+}
+
+// Bare `sf` (no args) should lead with a version line before falling
+// through to the usual help/command list.
+func TestRootCmd_BareRunPrintsVersion(t *testing.T) {
+	buf := &bytes.Buffer{}
+	RootCmd.SetOut(buf)
+	RootCmd.SetArgs([]string{})
+	defer func() {
+		RootCmd.SetOut(nil)
+		RootCmd.SetArgs(nil)
+	}()
+
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "sf version") {
+		t.Fatalf("got %q, want output to contain \"sf version\"", out)
+	}
+	if !strings.Contains(out, "Usage:") {
+		t.Fatalf("got %q, want the usual help to still follow", out)
 	}
 }

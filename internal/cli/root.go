@@ -45,6 +45,12 @@ project's code and assembling compact, structural context for an LLM agent.`,
 	// main() prints the error once; let it own that so we don't get a
 	// duplicate cobra "Error:" line above our "error:" line.
 	SilenceErrors: true,
+	// Bare `sf` leads with the version, then falls through to the usual
+	// help/command list, instead of cobra's plain default help.
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Fprintf(cmd.OutOrStdout(), "sf version %s\n\n", version.Version)
+		_ = cmd.Help()
+	},
 }
 
 func init() {
