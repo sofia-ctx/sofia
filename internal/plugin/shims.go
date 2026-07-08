@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sofia-ctx/sofia/internal/adapter"
 )
 
 // BuildCommands turns enabled plugins into cobra commands ready to attach to the
@@ -40,7 +42,29 @@ func buildOne(d Descriptor) *cobra.Command {
 	for _, c := range d.Manifest.Commands {
 		attachLeaf(root, d, c)
 	}
+	attachAdapter(root, d)
 	return root
+}
+
+// attachAdapter adds the host-synthesized layers/grep/refs commands for an
+// adapter plugin. A declared command of the same name wins the collision (it is
+// already attached), so an adapter author can override a synthesized command by
+// declaring their own. A malformed adapter block can't reach here — discovery
+// disables the plugin with an "invalid adapter" reason before it is built — so a
+// Config error is silently skipped rather than surfaced twice.
+func attachAdapter(root *cobra.Command, d Descriptor) {
+	if !d.Manifest.HasAdapter() {
+		return
+	}
+	cfg, err := d.Manifest.Adapter.Config()
+	if err != nil {
+		return
+	}
+	for _, c := range adapter.Commands(d.Name, cfg) {
+		if childNamed(root, c.Name()) == nil {
+			root.AddCommand(c)
+		}
+	}
 }
 
 // passthroughCmd is `sf <name> …` execing the plugin with the user's args.

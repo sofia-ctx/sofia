@@ -106,6 +106,52 @@ func TestLoad_MissingExecutableDisabledWithReason(t *testing.T) {
 	}
 }
 
+// writeAdapterOnly installs a pure-adapter plugin: an adapter block, no exec,
+// no declared commands, and crucially no executable file on disk.
+func writeAdapterOnly(t *testing.T, name, manifest string) {
+	t.Helper()
+	dir := filepath.Join(PluginsDir(), name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, manifestFile), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoad_AdapterOnlyEnabledWithoutExec(t *testing.T) {
+	isolate(t)
+	writeAdapterOnly(t, "ddd", "schema: 1\nprotocol: \"1.0.0\"\ndescription: php-ddd adapter\nadapter:\n  kind: php-ddd\n  root_markers: [composer.json]\n  ext: [php]\n  layers:\n    - name: Domain\n      match: [\"src/Domain/**\"]\n")
+
+	d, ok := Find(Load(), "ddd")
+	if !ok {
+		t.Fatal("adapter-only plugin not discovered")
+	}
+	if !d.Enabled || d.Reason != "" {
+		t.Errorf("adapter-only plugin should be enabled without an exec, got enabled=%v reason=%q", d.Enabled, d.Reason)
+	}
+	if d.Exec != "" {
+		t.Errorf("adapter-only plugin should carry no exec, got %q", d.Exec)
+	}
+	if !d.IsGroup() {
+		t.Error("adapter-only plugin should be a group (host synthesizes its commands)")
+	}
+}
+
+func TestLoad_InvalidAdapterDisabledWithReason(t *testing.T) {
+	isolate(t)
+	// A layer with no match glob fails Config.Validate.
+	writeAdapterOnly(t, "bad", "schema: 1\nprotocol: \"1.0.0\"\nadapter:\n  kind: broken\n  root_markers: [composer.json]\n  layers:\n    - name: Domain\n")
+
+	d, ok := Find(Load(), "bad")
+	if !ok {
+		t.Fatal("broken adapter plugin not discovered")
+	}
+	if d.Enabled || !strings.Contains(d.Reason, "invalid adapter") {
+		t.Errorf("broken adapter should be disabled with an invalid-adapter reason, got enabled=%v reason=%q", d.Enabled, d.Reason)
+	}
+}
+
 func TestLoad_ConventionOnPath(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)

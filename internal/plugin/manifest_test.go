@@ -83,6 +83,46 @@ func TestParseManifest_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestManifest_HasAdapter(t *testing.T) {
+	with, err := ParseManifest([]byte("schema: 1\nprotocol: \"1.0.0\"\nadapter:\n  kind: php-ddd\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !with.HasAdapter() {
+		t.Error("manifest with an adapter block should report HasAdapter")
+	}
+	without, err := ParseManifest([]byte("schema: 1\nprotocol: \"1.0.0\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if without.HasAdapter() {
+		t.Error("manifest without an adapter block should not report HasAdapter")
+	}
+}
+
+func TestAdapter_Config(t *testing.T) {
+	m, err := ParseManifest([]byte("schema: 1\nprotocol: \"1.0.0\"\nadapter:\n  kind: php-ddd\n  root_markers: [composer.json]\n  ext: [php]\n  layers:\n    - name: Domain\n      match: [\"src/Domain/**\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Adapter.Config()
+	if err != nil {
+		t.Fatalf("Adapter.Config: %v", err)
+	}
+	if cfg.Kind != "php-ddd" || len(cfg.RootMarkers) != 1 || cfg.RootMarkers[0] != "composer.json" {
+		t.Errorf("config decoded wrong: %+v", cfg)
+	}
+	if len(cfg.Ext) != 1 || cfg.Ext[0] != ".php" {
+		t.Errorf("ext not normalized through the manifest bridge: %+v", cfg.Ext)
+	}
+	if len(cfg.Layers) != 1 || cfg.Layers[0].Name != "Domain" {
+		t.Errorf("layers decoded wrong: %+v", cfg.Layers)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("decoded config should validate: %v", err)
+	}
+}
+
 func TestParseManifest_MinimalParsesButUndeclaredProtocol(t *testing.T) {
 	// A valid-but-underspecified manifest parses; the missing protocol is
 	// caught by compatibility gating, not by the parser.

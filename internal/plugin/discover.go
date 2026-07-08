@@ -184,9 +184,26 @@ func scanManaged() []cachedPlugin {
 			continue
 		}
 		cp.Manifest = m
+		if m.HasAdapter() {
+			// A broken adapter block disables the plugin with a precise reason,
+			// the same as a broken manifest — validated once here so dispatch
+			// and `sf plugin list` agree.
+			if cfg, cerr := m.Adapter.Config(); cerr != nil {
+				cp.LoadError = "invalid adapter: " + cerr.Error()
+			} else if verr := cfg.Validate(); verr != nil {
+				cp.LoadError = "invalid adapter: " + verr.Error()
+			}
+		}
 		exe, err := managedExec(dir, m)
 		if err != nil {
-			cp.LoadError = err.Error()
+			// A pure-adapter plugin (adapter block, no exec, no declared
+			// commands) legitimately ships no executable — the host runs its
+			// synthesized commands in-process — so a missing binary isn't fatal.
+			if isAdapterOnly(m) {
+				exe = ""
+			} else if cp.LoadError == "" {
+				cp.LoadError = err.Error()
+			}
 		}
 		cp.Exec = exe
 		out = append(out, cp)
@@ -247,6 +264,14 @@ func managedExec(dir string, m Manifest) (string, error) {
 		return "", fmt.Errorf("no runnable executable %q in %s", name, dir)
 	}
 	return path, nil
+}
+
+// isAdapterOnly reports whether a manifest is a pure Tier-1 adapter: an adapter
+// block, no declared executable, and no declared subprocess commands. Such a
+// plugin runs entirely in-process (its host-synthesized commands), so it needs
+// no binary on disk.
+func isAdapterOnly(m Manifest) bool {
+	return m.HasAdapter() && m.Exec == "" && len(m.Commands) == 0
 }
 
 // isExecutable reports whether path is a regular file with an execute bit set.

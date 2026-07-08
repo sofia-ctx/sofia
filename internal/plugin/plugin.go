@@ -98,9 +98,11 @@ type Descriptor struct {
 }
 
 // IsGroup reports whether the plugin exposes named subcommands (so `sf <name>`
-// is a help-only group) rather than a single passthrough command. Group names
-// must be kept out of the central call-log fallback, the same way `sf cc` and
-// `sf gripe` are (see calllog.RegisterPluginGroups).
+// is a help-only group) rather than a single passthrough command. A plugin is a
+// group if it declares commands or carries an adapter block (the host
+// synthesizes layers/grep/refs under it). Group names must be kept out of the
+// central call-log fallback, the same way `sf cc` and `sf gripe` are (see
+// calllog.RegisterPluginGroups).
 func (d Descriptor) IsGroup() bool {
-	return len(d.Manifest.Commands) > 0
+	return len(d.Manifest.Commands) > 0 || d.Manifest.HasAdapter()
 }
