@@ -77,3 +77,56 @@ commit it moved from/to (`upgraded hello: 1a2b3c4 → 9f8e7d6`, or `hello is up
 to date (1a2b3c4)` if the ref's tip hasn't moved). Run it with no name to
 upgrade every git-installed plugin at once; anything installed from a local
 directory is reported and left alone.
+
+## Adapter (Tier-1): a plugin with no code
+
+Some plugins don't need an executable at all — they just declare a project's
+conventions and let the host do the work. A **Tier-1 adapter** is a `plugin.yaml`
+with an `adapter:` block and no `exec`. From that block the host synthesizes
+three project-aware commands, grouped by the layers you name:
+
+```bash
+sf plugin new php-ddd --adapter
+sf plugin install ./php-ddd
+cd your-php-project      # a dir with the adapter's root marker somewhere above
+sf php-ddd layers                    # the declared layers
+sf php-ddd layers src/Domain/User.php  # → Domain
+sf php-ddd grep User                 # matches, grouped by layer
+sf php-ddd refs User                 # defs/uses, grouped by layer
+```
+
+The block:
+
+```yaml
+schema: 1
+protocol: "1.0.0"
+description: "PHP DDD layer adapter"
+adapter:
+  kind: php-ddd
+  # root_key: PROJECT_ROOT      # optional: an env var that pins the root
+  root_markers: [composer.json] # required: how the host finds the project root
+  ext: [php]                    # optional: scope grep/refs to these extensions
+  layers:                       # optional: named globs, matched in this order
+    - name: Domain
+      match: ["src/Domain/**"]
+    - name: Application
+      match: ["src/Application/**"]
+    - name: Infrastructure
+      match: ["src/Infrastructure/**"]
+```
+
+The three synthesized commands:
+
+- **`layers [<path>]`** — with no argument, lists the declared layers; with a
+  path, classifies it into one (or `(unclassified)`).
+- **`grep <pattern>…`** — searches the project (scoped to `ext`) and groups the
+  hits by layer.
+- **`refs <symbol>`** — finds a symbol's definitions and uses and groups them by
+  layer.
+
+Each takes `--format` (`toon`/`md`/`json`), `--root` (skip resolution and point
+at a directory), and resolves the project root the same way otherwise: `$root_key`
+if set, else a walk up from the cwd for a `root_markers` file. Globs understand
+`**` (zero or more path segments); a single `*` never crosses a `/`. Layers are
+matched top to bottom, so the first that claims a path wins and the output order
+is stable. See [docs/adapters.md](adapters.md) for the full concept.

@@ -2,7 +2,13 @@
 // host-side mechanics that let a third-party executable extend the `sf`
 // command tree without being compiled into the binary. It is Tier 2 of a
 // three-tier design (Tier 1 = declarative YAML adapters, Tier 3 = a first-party
-// Go SDK); only the subprocess tier lives here.
+// Go SDK); the subprocess tier lives here.
+//
+// Tier 1 lives in internal/adapter and is wired in here: a manifest's
+// `adapter:` block (see manifest.go's Adapter.Config) turns into host-
+// synthesized layers/grep/refs commands for a plugin that ships no executable
+// (see shims.go's attachAdapter and discover.go's isAdapterOnly). The concept
+// is documented in docs/adapters.md; the subprocess contract below is Tier 2.
 //
 // # Discovery
 //

@@ -596,7 +596,11 @@ ready to install elsewhere or share.
 
 Writing a plugin from scratch rather than pulling one from a pack?
 `sf plugin new <name>` scaffolds a working one — see
-[docs/plugins.md](docs/plugins.md) for the 5-minute walkthrough.
+[docs/plugins.md](docs/plugins.md) for the 5-minute walkthrough. For a
+declarative plugin with no code — one that just names your project's layers and
+lets the host synthesize `layers`/`grep`/`refs` grouped by layer — reach for a
+Tier-1 adapter (`sf plugin new <name> --adapter`); see
+[docs/adapters.md](docs/adapters.md).
 
 ## Layout
 
