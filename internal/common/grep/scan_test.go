@@ -110,6 +110,43 @@ func TestRun_ExtraIgnoreDir(t *testing.T) {
 	}
 }
 
+// TestScan_ReturnsStructuredResult checks the exported Scan wrapper hands back
+// the same hits Run would render, without touching an io.Writer — the entry
+// point the adapter commands build on.
+func TestScan_ReturnsStructuredResult(t *testing.T) {
+	root := scaffoldTree(t)
+	res, err := Scan(Options{
+		Root:          root,
+		Patterns:      []string{"TARGET"},
+		CaseSensitive: true,
+		WordBound:     true,
+		Exts:          []string{"php"},
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(res.Patterns) != 1 || res.Patterns[0].Pattern != "TARGET" {
+		t.Fatalf("unexpected pattern result: %+v", res.Patterns)
+	}
+	var files []string
+	for _, h := range res.Patterns[0].Hits {
+		files = append(files, h.File)
+	}
+	got := strings.Join(files, ",")
+	if !strings.Contains(got, "src/UserService.php") || !strings.Contains(got, "src/other.php") {
+		t.Errorf("Scan hits = %q, want both src files", got)
+	}
+	if strings.Contains(got, "vendor/") {
+		t.Errorf("vendor/ should be ignored, got %q", got)
+	}
+}
+
+func TestScan_EmptyPatternsErrors(t *testing.T) {
+	if _, err := Scan(Options{Root: t.TempDir()}); err == nil {
+		t.Error("expected error with no patterns")
+	}
+}
+
 func TestRun_EmptyPatternsErrors(t *testing.T) {
 	err := Run(Options{Root: t.TempDir(), Format: "toon"}, &bytes.Buffer{})
 	if err == nil {

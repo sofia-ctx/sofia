@@ -65,6 +65,25 @@ var DefaultIgnoreDirs = []string{
 	".svn", ".hg", "dist", "build", "target", "__pycache__",
 }
 
+// Scan runs the search and returns the structured result without rendering or
+// logging anything — the building block a caller that wants to post-process
+// hits (group them by layer, feed another tool) uses instead of Run, which
+// renders and writes telemetry. It shares the same unexported scan Run drives,
+// so the two never drift.
+func Scan(opts Options) (*Result, error) {
+	if len(opts.Patterns) == 0 {
+		return nil, fmt.Errorf("no patterns to search")
+	}
+	if opts.Root == "" {
+		opts.Root = "."
+	}
+	absRoot, err := filepath.Abs(opts.Root)
+	if err != nil {
+		return nil, err
+	}
+	return scan(opts, absRoot)
+}
+
 // Run executes the scan and renders the result to w.
 func Run(opts Options, w io.Writer) error {
 	tracker := calllog.Start("grep", append([]string{"--format=" + opts.Format}, opts.Patterns...))

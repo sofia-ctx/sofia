@@ -79,6 +79,26 @@ func validateSymbol(sym string) error {
 	return nil
 }
 
+// Scan runs the symbol search and returns the structured result without
+// rendering or logging — the building block for a caller that wants to
+// post-process refs (e.g. group them by layer). It shares the unexported scan
+// Run drives, dropping only the raw-token estimate that scan returns for Run's
+// savings footer.
+func Scan(opts Options) (*Result, error) {
+	if err := validateSymbol(opts.Symbol); err != nil {
+		return nil, err
+	}
+	if opts.Root == "" {
+		opts.Root = "."
+	}
+	absRoot, err := filepath.Abs(opts.Root)
+	if err != nil {
+		return nil, err
+	}
+	result, _, err := scan(opts, absRoot)
+	return result, err
+}
+
 // Run executes the scan and renders the result to w.
 func Run(opts Options, w io.Writer) error {
 	tracker := calllog.Start("refs", []string{"--format=" + opts.Format, opts.Symbol})

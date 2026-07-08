@@ -35,6 +35,31 @@ func refByFile(refs []Ref, file string) (Ref, bool) {
 	return Ref{}, false
 }
 
+// TestScan_Exported checks the exported Scan wrapper: it validates the symbol,
+// defaults the root, and returns the same structured result the unexported scan
+// yields (minus the raw-token estimate) — the entry point the adapter refs
+// command builds on.
+func TestScan_Exported(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.go", "package sample\n\nfunc Handle(w int) error {\n\treturn nil\n}\n")
+	writeFile(t, dir, "b.go", "package sample\n\nfunc Serve() {\n\tHandle(1)\n}\n")
+
+	res, err := Scan(Options{Symbol: "Handle", Root: dir})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if res.Defs != 1 || res.Uses != 1 {
+		t.Fatalf("Defs/Uses = %d/%d, want 1/1", res.Defs, res.Uses)
+	}
+	if _, ok := refByFile(res.Refs, "a.go"); !ok {
+		t.Errorf("a.go ref missing: %+v", res.Refs)
+	}
+
+	if _, err := Scan(Options{Symbol: "not a symbol", Root: dir}); err == nil {
+		t.Error("Scan should reject a non-identifier symbol")
+	}
+}
+
 func TestFindsDefAndUses(t *testing.T) {
 	setLogDir(t)
 	dir := t.TempDir()
