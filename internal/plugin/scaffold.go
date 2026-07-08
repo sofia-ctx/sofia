@@ -12,15 +12,20 @@ import (
 // walkthrough runs.
 const exampleCommand = "greet"
 
-// Scaffold creates a new plugin skeleton at filepath.Join(parentDir, name): a
-// plugin.yaml manifest, an executable POSIX-sh stub, and a README. It is the
-// `sf plugin new` implementation. parentDir defaults to "." when empty. The
-// target directory must already be absent — Scaffold never overwrites.
+// Scaffold creates a new plugin skeleton at filepath.Join(parentDir, name). It
+// is the `sf plugin new` implementation. parentDir defaults to "." when empty;
+// the target directory must already be absent — Scaffold never overwrites.
 //
-// The generated manifest declares protocol: HostProtocol and a runnable
-// executable, so it is installable as-is: `sf plugin install <dir>` parses
-// and enables it without any edits required first.
-func Scaffold(name, parentDir string) (string, error) {
+// Two shapes, selected by adapter:
+//   - a subprocess plugin (adapter=false): a plugin.yaml declaring protocol +
+//     one example command, an executable POSIX-sh stub, and a README.
+//   - a Tier-1 adapter (adapter=true): a plugin.yaml with an adapter block (root
+//     markers, extensions, one example layer) and no executable — the host runs
+//     its synthesized layers/grep/refs commands in-process.
+//
+// Either shape is installable as-is: `sf plugin install <dir>` parses and
+// enables it without any edits required first.
+func Scaffold(name, parentDir string, adapter bool) (string, error) {
 	if err := validScaffoldName(name); err != nil {
 		return "", err
 	}
@@ -37,13 +42,21 @@ func Scaffold(name, parentDir string) (string, error) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dst, manifestFile), []byte(scaffoldManifest(name)), 0o644); err != nil {
+
+	manifest, readme := scaffoldManifest(name), scaffoldReadme(name)
+	if adapter {
+		manifest, readme = scaffoldAdapterManifest(name), scaffoldAdapterReadme(name)
+	}
+	if err := os.WriteFile(filepath.Join(dst, manifestFile), []byte(manifest), 0o644); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dst, name), []byte(scaffoldExec(name)), 0o755); err != nil {
-		return "", err
+	// A pure adapter ships no executable — the host synthesizes its commands.
+	if !adapter {
+		if err := os.WriteFile(filepath.Join(dst, name), []byte(scaffoldExec(name)), 0o755); err != nil {
+			return "", err
+		}
 	}
-	if err := os.WriteFile(filepath.Join(dst, "README.md"), []byte(scaffoldReadme(name)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dst, "README.md"), []byte(readme), 0o644); err != nil {
 		return "", err
 	}
 	return dst, nil
@@ -89,6 +102,33 @@ commands:
 #     default: "Hello"
 #     required: false
 `, ManifestSchema, HostProtocol, name, name, exampleCommand)
+}
+
+// scaffoldAdapterManifest is the plugin.yaml written for `sf plugin new
+// --adapter`: a pure Tier-1 adapter with no exec. It declares the current
+// HostProtocol so it installs and enables without edits, required root_markers,
+// one active example layer, and commented root_key/ext the author fills in.
+func scaffoldAdapterManifest(name string) string {
+	return fmt.Sprintf(`# plugin.yaml -- a Tier-1 adapter. The host interprets the adapter block
+# below (no executable required) and synthesizes project-aware layers/grep/refs
+# commands under "sf %[1]s". Full reference: docs/adapters.md in
+# https://github.com/sofia-ctx/sofia.
+schema: %[2]d
+protocol: %[3]q
+version: "0.1.0"
+description: "TODO: describe the project %[1]s classifies"
+adapter:
+  kind: %[1]s
+  # root_key pins the project root from an env var when set; otherwise the host
+  # walks up from the cwd for one of root_markers.
+  # root_key: PROJECT_ROOT
+  root_markers: [composer.json]
+  # ext scopes grep/refs to these extensions (leading dot optional).
+  # ext: [php]
+  layers:
+    - name: Domain
+      match: ["src/Domain/**"]
+`, name, ManifestSchema, HostProtocol)
 }
 
 // scaffoldExec is the executable stub written for a new plugin: a POSIX sh
@@ -140,4 +180,28 @@ func scaffoldReadme(name string) string {
 		"docs/plugins.md in https://github.com/sofia-ctx/sofia, or the internal/plugin\n"+
 		"package doc in that repo.\n",
 		name, name, name, exampleCommand, name, name, name)
+}
+
+// scaffoldAdapterReadme is the README.md written alongside a new Tier-1 adapter:
+// how to install it and what the host synthesizes, plus a pointer to the concept
+// page.
+func scaffoldAdapterReadme(name string) string {
+	return fmt.Sprintf("# %[1]s\n\n"+
+		"A Tier-1 sofia adapter, scaffolded by `sf plugin new --adapter`. It ships no\n"+
+		"executable: the host reads the `adapter:` block in `plugin.yaml` and\n"+
+		"synthesizes project-aware commands from it.\n\n"+
+		"## Try it locally\n\n"+
+		"    sf plugin install ./%[1]s\n"+
+		"    sf %[1]s layers                 # list the declared layers\n"+
+		"    sf %[1]s layers src/Domain/X    # classify a path into a layer\n"+
+		"    sf %[1]s grep <pattern>         # search, grouped by layer\n"+
+		"    sf %[1]s refs <symbol>          # defs/uses, grouped by layer\n\n"+
+		"Run these from inside a project the adapter's `root_markers` identify (or set\n"+
+		"its `root_key`, or pass `--root`).\n\n"+
+		"## Edit the block\n\n"+
+		"Open `./%[1]s/plugin.yaml` and edit the `adapter:` block — the root markers,\n"+
+		"the extensions grep/refs scope to, and the layer globs. Re-run `sf plugin\n"+
+		"update` after a change so dispatch sees it.\n\n"+
+		"Full reference: docs/adapters.md in https://github.com/sofia-ctx/sofia.\n",
+		name)
 }

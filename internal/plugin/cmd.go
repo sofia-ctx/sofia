@@ -44,7 +44,10 @@ metadata is cached so the command tree is built without forking any plugin.
 }
 
 func newCmd() *cobra.Command {
-	var dir string
+	var (
+		dir     string
+		adapter bool
+	)
 	c := &cobra.Command{
 		Use:   "new <name>",
 		Short: "Scaffold a working plugin in <dir>/<name>",
@@ -56,12 +59,20 @@ example command, and a README. The scaffold installs as-is —
   sf plugin install ./hello
   sf hello greet
 
-— see docs/plugins.md for the full walkthrough.`,
+With --adapter it scaffolds a Tier-1 adapter instead: a plugin.yaml with an
+adapter block and no executable, whose layers/grep/refs commands the host
+synthesizes —
+
+  sf plugin new php-ddd --adapter
+  sf plugin install ./php-ddd
+  sf php-ddd layers
+
+— see docs/plugins.md and docs/adapters.md for the full walkthrough.`,
 		Args:         cliflags.ExactArgsHint(1, "new needs a plugin name; try: sf plugin new <name>"),
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
-			dst, err := Scaffold(name, dir)
+			dst, err := Scaffold(name, dir, adapter)
 			if err != nil {
 				return err
 			}
@@ -75,6 +86,7 @@ example command, and a README. The scaffold installs as-is —
 		},
 	}
 	c.Flags().StringVar(&dir, "dir", "", "parent directory to scaffold into (default: current directory)")
+	c.Flags().BoolVar(&adapter, "adapter", false, "scaffold a Tier-1 adapter (adapter block, no executable)")
 	_ = c.RegisterFlagCompletionFunc("dir", cliflags.DirOnly)
 	return c
 }

@@ -10,7 +10,7 @@ func TestNewScaffoldInstallable(t *testing.T) {
 	isolate(t)
 	parent := t.TempDir()
 
-	dst, err := Scaffold("hello", parent)
+	dst, err := Scaffold("hello", parent, false)
 	if err != nil {
 		t.Fatalf("Scaffold: %v", err)
 	}
@@ -43,12 +43,46 @@ func TestNewScaffoldInstallable(t *testing.T) {
 	}
 }
 
+// A --adapter scaffold produces a pure adapter (no executable) that installs and
+// enables, exposing the host-synthesized commands as a group.
+func TestNewAdapterScaffoldInstallable(t *testing.T) {
+	isolate(t)
+	parent := t.TempDir()
+
+	dst, err := Scaffold("php-ddd", parent, true)
+	if err != nil {
+		t.Fatalf("Scaffold(--adapter): %v", err)
+	}
+	// No executable file is written for an adapter scaffold.
+	if _, err := os.Stat(filepath.Join(dst, "php-ddd")); !os.IsNotExist(err) {
+		t.Errorf("adapter scaffold should not write an executable, stat err = %v", err)
+	}
+
+	name, err := Install(dst)
+	if err != nil {
+		t.Fatalf("Install(adapter scaffold): %v", err)
+	}
+	d, ok := Find(Load(), name)
+	if !ok {
+		t.Fatal("adapter scaffold not discovered after install")
+	}
+	if !d.Enabled {
+		t.Errorf("adapter scaffold not enabled: %+v", d)
+	}
+	if d.Exec != "" {
+		t.Errorf("adapter scaffold should carry no exec, got %q", d.Exec)
+	}
+	if !d.Manifest.HasAdapter() || !d.IsGroup() {
+		t.Errorf("adapter scaffold should be an adapter group: %+v", d)
+	}
+}
+
 func TestNewRejectsExistingDir(t *testing.T) {
 	parent := t.TempDir()
 	if err := os.Mkdir(filepath.Join(parent, "hello"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Scaffold("hello", parent); err == nil {
+	if _, err := Scaffold("hello", parent, false); err == nil {
 		t.Fatal("expected an error scaffolding over an already-existing directory")
 	}
 	// And it must not have touched what was there.
@@ -64,7 +98,7 @@ func TestNewRejectsExistingDir(t *testing.T) {
 func TestNewRejectsBadName(t *testing.T) {
 	parent := t.TempDir()
 	for _, name := range []string{"", ".", "..", "a/b", "a/", "/etc"} {
-		if _, err := Scaffold(name, parent); err == nil {
+		if _, err := Scaffold(name, parent, false); err == nil {
 			t.Errorf("Scaffold(%q, ...): expected an error", name)
 		}
 	}
