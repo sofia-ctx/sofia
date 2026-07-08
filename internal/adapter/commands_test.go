@@ -98,7 +98,7 @@ func TestCommands_GrepGroupedByLayer(t *testing.T) {
 	if dom < 0 || app < 0 || infra < 0 {
 		t.Fatalf("missing a layer group:\n%s", out)
 	}
-	if !(dom < app && app < infra) {
+	if dom >= app || app >= infra {
 		t.Errorf("groups not in declared order (Domain<Application<Infrastructure):\n%s", out)
 	}
 	// The Domain group owns User.php; Infrastructure owns UserRepository.php.

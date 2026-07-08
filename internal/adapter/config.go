@@ -77,7 +77,7 @@ func Parse(kind string, spec map[string]any) (Config, error) {
 		Ext:         normalizeExts(raw.Ext),
 	}
 	for _, l := range raw.Layers {
-		cfg.Layers = append(cfg.Layers, Layer{Name: l.Name, Match: l.Match})
+		cfg.Layers = append(cfg.Layers, Layer(l))
 	}
 	return cfg, nil
 }
