@@ -5,6 +5,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/sofia-ctx/sofia/internal/adapter"
 	"github.com/sofia-ctx/sofia/internal/envfile"
 )
 
@@ -84,10 +85,20 @@ func (s Setting) Field() envfile.Field {
 }
 
 // Adapter is the reserved Tier-1 declarative block. Kind names the adapter and
-// Spec captures the rest verbatim; the subprocess tier does not interpret it.
+// Spec captures the rest verbatim; the subprocess tier does not interpret it —
+// the host does, via Config, which decodes Spec into a typed adapter.Config.
 type Adapter struct {
 	Kind string         `yaml:"kind" json:"kind,omitempty"`
 	Spec map[string]any `yaml:",inline" json:"spec,omitempty"`
+}
+
+// Config decodes the adapter block into a typed, host-interpreted adapter.Config
+// (root markers, extensions, layer globs). The result is not validated — call
+// adapter.Config.Validate on it. This is the only bridge from the manifest tier
+// into internal/adapter; the dependency runs one way (plugin → adapter) so the
+// two packages stay acyclic.
+func (a *Adapter) Config() (adapter.Config, error) {
+	return adapter.Parse(a.Kind, a.Spec)
 }
 
 // ParseManifest decodes a plugin.yaml. Unknown top-level keys are ignored for
@@ -111,4 +122,12 @@ func (m Manifest) HasCapability(name string) bool {
 		}
 	}
 	return false
+}
+
+// HasAdapter reports whether the manifest carries a Tier-1 adapter block, i.e.
+// the host should synthesize project-aware commands for it. A pure-adapter
+// plugin (adapter block, no exec, no declared commands) is enabled on the
+// strength of this alone.
+func (m Manifest) HasAdapter() bool {
+	return m.Adapter != nil
 }
