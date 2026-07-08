@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 )
 
 func TestIsURL(t *testing.T) {
@@ -89,7 +91,7 @@ func initRepo(t *testing.T) string {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	if _, err := git(dir, args...); err != nil {
+	if _, err := gitexec.Run(dir, args...); err != nil {
 		t.Fatalf("git %v: %v", args, err)
 	}
 }
@@ -106,7 +108,7 @@ func TestCloneShallow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dst, "file.txt")); err != nil {
 		t.Errorf("cloned tree missing file.txt: %v", err)
 	}
-	want, err := git(dst, "rev-parse", "HEAD")
+	want, err := gitexec.Run(dst, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +121,7 @@ func TestCloneShallow_Ref(t *testing.T) {
 	requireGit(t)
 	src := initRepo(t)
 	runGit(t, src, "tag", "v1")
-	tagCommit, err := git(src, "rev-parse", "v1")
+	tagCommit, err := gitexec.Run(src, "rev-parse", "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +133,7 @@ func TestCloneShallow_Ref(t *testing.T) {
 	}
 	runGit(t, src, "add", "feature.txt")
 	runGit(t, src, "commit", "--quiet", "-m", "feature")
-	branchCommit, err := git(src, "rev-parse", "feature")
+	branchCommit, err := gitexec.Run(src, "rev-parse", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}

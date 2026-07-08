@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/internal/emit"
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 )
 
 type Options struct {
@@ -83,11 +83,11 @@ func Collect(opts Options) (*Result, error) {
 	base, spec := diffBase(opts)
 	res := &Result{Spec: spec}
 
-	nameStatus, err := git(opts.Root, append([]string{"diff", "--name-status"}, base...)...)
+	nameStatus, err := gitexec.Run(opts.Root, append([]string{"diff", "--name-status"}, base...)...)
 	if err != nil {
 		return nil, err
 	}
-	numstat, err := git(opts.Root, append([]string{"diff", "--numstat"}, base...)...)
+	numstat, err := gitexec.Run(opts.Root, append([]string{"diff", "--numstat"}, base...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func Collect(opts Options) (*Result, error) {
 	}
 
 	if opts.Symbols {
-		u0, err := git(opts.Root, append([]string{"diff", "-U0"}, base...)...)
+		u0, err := gitexec.Run(opts.Root, append([]string{"diff", "-U0"}, base...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func Collect(opts Options) (*Result, error) {
 
 	// Untracked files (only meaningful for the working-tree default).
 	if !opts.Staged && opts.Range == "" {
-		porcelain, err := git(opts.Root, "status", "--porcelain")
+		porcelain, err := gitexec.Run(opts.Root, "status", "--porcelain")
 		if err == nil {
 			for _, p := range parseUntracked(porcelain) {
 				if _, seen := byPath[p]; seen {
@@ -152,21 +152,6 @@ func diffBase(opts Options) ([]string, string) {
 	default:
 		return []string{"HEAD"}, "working tree (vs HEAD)"
 	}
-}
-
-func git(root string, args ...string) (string, error) {
-	full := args
-	if root != "" {
-		full = append([]string{"-C", root}, args...)
-	}
-	cmd := exec.Command("git", full...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
-	}
-	return out.String(), nil
 }
 
 type statusLine struct{ status, path string }

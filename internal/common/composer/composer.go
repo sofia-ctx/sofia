@@ -10,18 +10,17 @@
 package composer
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 	"github.com/sofia-ctx/sofia/internal/toon"
 	"github.com/sofia-ctx/sofia/internal/walker"
 )
@@ -204,13 +203,11 @@ func relDir(root, dir string) string {
 // or "" when the dir is not a repo / has no tags. composer.json carries no
 // `version` field by house rule, so the tag is the version of record.
 func gitLatestTag(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "describe", "--tags", "--abbrev=0")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	out, err := gitexec.Run(dir, "describe", "--tags", "--abbrev=0")
+	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out.String())
+	return strings.TrimSpace(out)
 }
 
 // phpstanLevel reads the configured PHPStan level from phpstan.neon[.dist],

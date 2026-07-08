@@ -21,6 +21,7 @@ import (
 
 	"github.com/sofia-ctx/sofia"
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 	"github.com/sofia-ctx/sofia/internal/pack"
 	"github.com/sofia-ctx/sofia/internal/version"
 )
@@ -505,7 +506,7 @@ func checkPacks() Check {
 
 // gitHeadTime returns the commit time of HEAD in root.
 func gitHeadTime(root string) (time.Time, error) {
-	out, err := git(root, "log", "-1", "--format=%ct")
+	out, err := gitexec.Run(root, "log", "-1", "--format=%ct")
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -518,7 +519,7 @@ func gitHeadTime(root string) (time.Time, error) {
 
 // gitDirtyGo reports whether the working tree has uncommitted *.go changes.
 func gitDirtyGo(root string) bool {
-	out, err := git(root, "status", "--porcelain")
+	out, err := gitexec.Run(root, "status", "--porcelain")
 	if err != nil {
 		return false
 	}
@@ -542,17 +543,6 @@ func porcelainHasGo(out string) bool {
 		}
 	}
 	return false
-}
-
-func git(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
-	}
-	return out.String(), nil
 }
 
 // resolve follows symlinks, falling back to the input when that fails.

@@ -7,7 +7,6 @@
 package packagist
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,7 +14,6 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,6 +21,7 @@ import (
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/internal/common/composer"
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 	"github.com/sofia-ctx/sofia/internal/toon"
 )
 
@@ -138,8 +137,17 @@ func summarize(statuses []Status) (drift, unknown int) {
 	return drift, unknown
 }
 
+// gitTimeout runs a git subcommand in dir via gitexec, capped at timeout —
+// every git call in this package is a probe or a mutation against a remote,
+// never worth blocking indefinitely on.
+func gitTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return gitexec.RunCtx(ctx, dir, args...)
+}
+
 func latestTag(dir string) string {
-	out, err := git(dir, 3*time.Second, "describe", "--tags", "--abbrev=0")
+	out, err := gitTimeout(dir, 3*time.Second, "describe", "--tags", "--abbrev=0")
 	if err != nil {
 		return ""
 	}
@@ -152,7 +160,7 @@ func pushedState(dir, localTag string) string {
 	if localTag == "" {
 		return "?"
 	}
-	out, err := git(dir, 5*time.Second, "ls-remote", "--tags", "origin", "refs/tags/"+localTag)
+	out, err := gitTimeout(dir, 5*time.Second, "ls-remote", "--tags", "origin", "refs/tags/"+localTag)
 	if err != nil {
 		return "?"
 	}
@@ -160,22 +168,6 @@ func pushedState(dir, localTag string) string {
 		return "no"
 	}
 	return "yes"
-}
-
-// git runs a git subcommand in dir with a timeout and no interactive prompts.
-func git(dir string, timeout time.Duration, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	full := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", full...)
-	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0")
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v", strings.Join(args, " "), err)
-	}
-	return out.String(), nil
 }
 
 // p2BaseURL is the Packagist p2 endpoint prefix; overridden in tests.

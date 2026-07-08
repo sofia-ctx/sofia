@@ -111,14 +111,14 @@ func release(opts ReleaseOptions) (*ReleaseResult, error) {
 
 	// Preflight: a clean working tree, so the tag points at a known state.
 	if !opts.AllowDirty {
-		if out, _ := git(dir, 5*time.Second, "status", "--porcelain"); strings.TrimSpace(out) != "" {
+		if out, _ := gitTimeout(dir, 5*time.Second, "status", "--porcelain"); strings.TrimSpace(out) != "" {
 			return res, fmt.Errorf("packagist release: %s working tree is not clean (commit/stash, or pass --allow-dirty)", pkg.Dir)
 		}
 	}
 
 	// 1) Tag (annotated), reusing an existing tag of the same name.
 	tagExists := false
-	if out, _ := git(dir, 5*time.Second, "tag", "--list", opts.Version); strings.TrimSpace(out) != "" {
+	if out, _ := gitTimeout(dir, 5*time.Second, "tag", "--list", opts.Version); strings.TrimSpace(out) != "" {
 		tagExists = true
 	}
 	if tagExists {
@@ -126,7 +126,7 @@ func release(opts ReleaseOptions) (*ReleaseResult, error) {
 	} else if opts.DryRun {
 		step("would create annotated tag %s (%q)", opts.Version, opts.Message)
 	} else {
-		if _, err := git(dir, 10*time.Second, "tag", "-a", opts.Version, "-m", opts.Message); err != nil {
+		if _, err := gitTimeout(dir, 10*time.Second, "tag", "-a", opts.Version, "-m", opts.Message); err != nil {
 			return res, err
 		}
 		res.TagCreated = true
@@ -137,7 +137,7 @@ func release(opts ReleaseOptions) (*ReleaseResult, error) {
 	if opts.DryRun {
 		step("would run: git push origin %s", opts.Version)
 	} else {
-		if _, err := git(dir, 60*time.Second, "push", "origin", opts.Version); err != nil {
+		if _, err := gitTimeout(dir, 60*time.Second, "push", "origin", opts.Version); err != nil {
 			return res, err
 		}
 		res.TagPushed = true

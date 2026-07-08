@@ -9,7 +9,6 @@ package worktrees
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 )
 
 type Options struct {
@@ -176,7 +176,7 @@ func scriptForks(repo, proj, script string) ([]Fork, error) {
 // plainForks lists a repo's linked worktrees (excluding its primary checkout)
 // for repos without dev/worktree.sh — branch + dir + dirty, no stack columns.
 func plainForks(repo, proj string) []Fork {
-	out, err := git(repo, "worktree", "list", "--porcelain")
+	out, err := gitexec.Run(repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil
 	}
@@ -223,7 +223,7 @@ func isFile(p string) bool {
 }
 
 func worktreeDirty(dir string) bool {
-	out, err := git(dir, "status", "--porcelain")
+	out, err := gitexec.Run(dir, "status", "--porcelain")
 	return err == nil && strings.TrimSpace(out) != ""
 }
 
@@ -232,15 +232,4 @@ func resolve(p string) string {
 		return r
 	}
 	return p
-}
-
-func git(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
-	}
-	return out.String(), nil
 }

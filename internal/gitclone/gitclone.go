@@ -6,10 +6,10 @@
 package gitclone
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/sofia-ctx/sofia/internal/gitexec"
 )
 
 // IsURL reports whether s names a git remote rather than a local path, by
@@ -61,30 +61,12 @@ func CloneShallow(url, ref, dst string) (string, error) {
 		args = append(args, "--branch", ref)
 	}
 	args = append(args, "--", url, dst)
-	if _, err := git("", args...); err != nil {
+	if _, err := gitexec.Run("", args...); err != nil {
 		return "", err
 	}
-	out, err := git(dst, "rev-parse", "HEAD")
+	out, err := gitexec.Run(dst, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
-}
-
-// git runs a git subcommand and returns stdout, wrapping any failure with
-// git's own stderr (so the user sees git's auth/404 message, not just an exit
-// code). Mirrors changed.git (internal/common/changed/changed.go).
-func git(root string, args ...string) (string, error) {
-	full := args
-	if root != "" {
-		full = append([]string{"-C", root}, args...)
-	}
-	cmd := exec.Command("git", full...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
-	}
-	return out.String(), nil
 }
