@@ -1,0 +1,9 @@
+{
+  "name": "sofia/php-ddd-fixture",
+  "description": "A tiny DDD-layered PHP project the adapter e2e test runs against.",
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

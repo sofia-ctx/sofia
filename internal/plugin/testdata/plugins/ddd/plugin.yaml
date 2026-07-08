@@ -1,0 +1,19 @@
+# Fixture adapter used by the plugin package's end-to-end test. A pure Tier-1
+# adapter: an adapter block and no executable. The host resolves the project
+# root from composer.json, scopes grep/refs to .php, and classifies files under
+# src/<Layer>/ into the three DDD layers.
+schema: 1
+protocol: "1.0.0"
+version: "0.1.0"
+description: "PHP DDD layer adapter"
+adapter:
+  kind: php-ddd
+  root_markers: [composer.json]
+  ext: [php]
+  layers:
+    - name: Domain
+      match: ["src/Domain/**"]
+    - name: Application
+      match: ["src/Application/**"]
+    - name: Infrastructure
+      match: ["src/Infrastructure/**"]

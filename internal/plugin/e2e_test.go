@@ -101,6 +101,132 @@ func TestEndToEnd_FixturePlugin(t *testing.T) {
 	})
 }
 
+// TestEndToEnd_AdapterPlugin is the load-bearing verification for Tier-1: a
+// pure-adapter plugin (no executable) is discovered, enabled, and its
+// host-synthesized commands run in-process against a real project fixture. It
+// proves the whole spine holds end-to-end — discovery keeps an exec-less plugin,
+// `sf --help` lists it without forking, and layers/grep classify by the adapter
+// block — with the real sf binary, nothing mocked.
+func TestEndToEnd_AdapterPlugin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the sf binary; skipped under -short")
+	}
+	bin := buildSF(t)
+	project, err := filepath.Abs(filepath.Join("testdata", "projects", "php-ddd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("plugin list shows the adapter enabled without an exec", func(t *testing.T) {
+		dataDir, logDir := t.TempDir(), t.TempDir()
+		installAdapter(t, dataDir)
+
+		res := runSF(t, bin, dataDir, logDir, "plugin", "list")
+		if res.exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "ddd") || !strings.Contains(res.stdout, "enabled") {
+			t.Errorf("`sf plugin list` did not show ddd enabled:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("layers lists the three declared layers", func(t *testing.T) {
+		dataDir, logDir := t.TempDir(), t.TempDir()
+		installAdapter(t, dataDir)
+
+		res := runSFIn(t, bin, dataDir, logDir, project, "ddd", "layers")
+		if res.exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+		}
+		for _, layer := range []string{"Domain", "Application", "Infrastructure"} {
+			if !strings.Contains(res.stdout, layer) {
+				t.Errorf("`sf ddd layers` missing %q:\n%s", layer, res.stdout)
+			}
+		}
+	})
+
+	t.Run("layers classifies a path into its layer", func(t *testing.T) {
+		dataDir, logDir := t.TempDir(), t.TempDir()
+		installAdapter(t, dataDir)
+
+		res := runSFIn(t, bin, dataDir, logDir, project, "ddd", "layers", "src/Domain/User.php")
+		if res.exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "layer: Domain") {
+			t.Errorf("src/Domain/User.php should classify to Domain:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("grep groups hits by layer and logs one ddd.grep line", func(t *testing.T) {
+		dataDir, logDir := t.TempDir(), t.TempDir()
+		installAdapter(t, dataDir)
+
+		res := runSFIn(t, bin, dataDir, logDir, project, "ddd", "grep", "User")
+		if res.exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+		}
+		// The Domain group owns User.php; Infrastructure owns UserRepository.php.
+		out := res.stdout
+		if !strings.Contains(out, "Domain{hits=") || !strings.Contains(out, "src/Domain/User.php") {
+			t.Errorf("grep did not group User.php under Domain:\n%s", out)
+		}
+		if !strings.Contains(out, "Infrastructure{hits=") || !strings.Contains(out, "src/Infrastructure/UserRepository.php") {
+			t.Errorf("grep did not group UserRepository.php under Infrastructure:\n%s", out)
+		}
+		domain := strings.Index(out, "Domain{hits=")
+		infra := strings.Index(out, "Infrastructure{hits=")
+		if domain < 0 || infra < 0 || domain > infra {
+			t.Errorf("layer groups not in declared order:\n%s", out)
+		}
+
+		lines := readLog(t, logDir)
+		var grepLines int
+		for _, l := range lines {
+			if l.Tool == "ddd.grep" {
+				grepLines++
+			}
+		}
+		if grepLines != 1 {
+			t.Errorf("want exactly one ddd.grep log line, got %d: %+v", grepLines, lines)
+		}
+	})
+
+	// Fork-bomb guard: `sf --help` lists the adapter (from its manifest) without
+	// running anything — a pure adapter has no executable to run, but the tree
+	// build must not choke on its absence either.
+	t.Run("sf --help lists the adapter without forking", func(t *testing.T) {
+		dataDir, logDir := t.TempDir(), t.TempDir()
+		installAdapter(t, dataDir)
+
+		res := runSF(t, bin, dataDir, logDir, "--help")
+		if res.exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", res.exit, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "ddd") {
+			t.Errorf("`sf --help` did not list the adapter:\n%s", res.stdout)
+		}
+	})
+}
+
+// installAdapter copies the committed ddd adapter fixture (plugin.yaml only, no
+// executable) into a temp XDG data dir.
+func installAdapter(t *testing.T, dataDir string) {
+	t.Helper()
+	dst := filepath.Join(dataDir, "sofia", "plugins", "ddd")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join("testdata", "plugins", "ddd", "plugin.yaml")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "plugin.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestE2E_InstallFromGitURL drives the real sf binary through `sf plugin
 // install <git-url>`: a real local git repo, cloned over file://, must land in
 // the managed plugins dir and be visible to `sf plugin list` right after.
@@ -237,7 +363,16 @@ type result struct {
 
 func runSF(t *testing.T, bin, dataDir, logDir string, args ...string) result {
 	t.Helper()
+	return runSFIn(t, bin, dataDir, logDir, "", args...)
+}
+
+// runSFIn is runSF with an explicit working directory, so an adapter's root
+// walk-up (which starts at the cwd) lands inside a project fixture. cwd="" keeps
+// the test's own working directory.
+func runSFIn(t *testing.T, bin, dataDir, logDir, cwd string, args ...string) result {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
+	cmd.Dir = cwd
 	cmd.Env = childEnv(map[string]string{
 		"XDG_DATA_HOME": dataDir,
 		"SOFIA_LOG_DIR": logDir,

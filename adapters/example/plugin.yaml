@@ -1,0 +1,30 @@
+# A canonical Tier-1 adapter, installable as-is:
+#
+#     sf plugin install ./adapters/example
+#     cd your-php-project
+#     sf example layers            # the declared layers
+#     sf example grep User         # matches, grouped by layer
+#     sf example refs User         # defs/uses, grouped by layer
+#
+# It ships no executable. The host reads this adapter block and synthesizes the
+# layers/grep/refs commands from it — resolving the project root from
+# composer.json, scoping grep/refs to .php, and classifying files under
+# src/<Layer>/ into DDD layers. See docs/adapters.md for the full reference.
+schema: 1
+protocol: "1.0.0"
+version: "0.1.0"
+description: "Example PHP DDD layer adapter"
+adapter:
+  kind: php-ddd
+  # root_key pins the root from an env var when set; otherwise the host walks up
+  # from the cwd for one of root_markers.
+  # root_key: PROJECT_ROOT
+  root_markers: [composer.json]
+  ext: [php]
+  layers:
+    - name: Domain
+      match: ["src/Domain/**"]
+    - name: Application
+      match: ["src/Application/**"]
+    - name: Infrastructure
+      match: ["src/Infrastructure/**"]
