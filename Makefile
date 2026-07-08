@@ -1,7 +1,10 @@
-.PHONY: help build test tidy fmt vet check clean install uninstall completions update
+.PHONY: help build test tidy fmt vet lint check clean install uninstall completions update
 
 # Where `make install` links the sf binary; must be on $PATH.
 BINDIR ?= $(HOME)/.local/bin
+
+# golangci-lint version pinned to match .github/workflows/ci.yml's lint job.
+LINT_VERSION := v2.12.2
 
 # Claude Code home — `make install` drops the sf-context skill here.
 CLAUDE_DIR ?= $(HOME)/.claude
@@ -31,8 +34,20 @@ fmt: ## gofmt the tree
 vet: ## go vet ./...
 	go vet ./...
 
-# Pre-commit gate: vet + tests.
-check: vet test ## Pre-commit gate (vet + test)
+# Prefers an already-installed golangci-lint (fast, no network); an absent
+# binary prints how to get one rather than hard-failing the target, since
+# CI installs it separately and a missing local tool shouldn't block `check`.
+lint: ## Run golangci-lint, pinned to CI's v2.12.2
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	else \
+		echo "golangci-lint not found on PATH."; \
+		echo "Install $(LINT_VERSION) (matches CI): https://golangci-lint.run/welcome/install/"; \
+		echo "  or run once via: go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(LINT_VERSION) run"; \
+	fi
+
+# Pre-commit gate: vet + lint + tests.
+check: vet lint test ## Pre-commit gate (vet + lint + test)
 
 # Build and symlink `sf` into BINDIR so it's on $PATH (no shell aliases),
 # and refresh shell completions. `sf claude <project>` then launches Claude

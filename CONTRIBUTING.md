@@ -61,19 +61,24 @@ unfinished work.
 ```bash
 make                # no target: self-documented help
 make build           # every binary into bin/**
-make check           # go vet + go test (the pre-commit gate)
+make check           # go vet + golangci-lint + go test (the pre-commit gate)
 ```
 
 Before committing:
 
 - `go test ./...` is green.
 - `gofmt -l` on the packages you touched prints nothing.
+- `make lint` is clean. It runs golangci-lint pinned to the version CI uses
+  (see `.github/workflows/ci.yml`'s `lint` job); install it locally
+  (https://golangci-lint.run/welcome/install/) so `make lint`/`make check`
+  actually run it instead of just printing the install hint.
 - `sf doctor` after `make install` if you're testing changes to the CLI
   itself — it catches the classic "fixed it in git, forgot to rebuild"
   trap (a stale `bin/sf` still on `$PATH`).
 
-CI runs the same gate (`go vet`, `go test ./...`, `gofmt -l`) on every pull
-request; a build that fails locally will fail there too.
+CI runs the same gate (`go build`, `GOOS=windows go build`, `go test ./...`,
+`gofmt -l`, and golangci-lint) on every pull request; a build that fails
+locally will fail there too.
 
 Smoke-test a new tool against a real project, not just its unit tests —
 that's where the economy-doc numbers come from.
