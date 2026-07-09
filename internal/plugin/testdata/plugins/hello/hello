@@ -7,7 +7,7 @@ cmd="$1"
 case "$cmd" in
   greet)
     echo "greeting: ${HELLO_GREETING:-Hello} $*"
-    echo "root=${SOFIA_PROJECT_ROOT} format=${SOFIA_FORMAT} tag=${SOFIA_TAG} source=${SOFIA_SOURCE} sid=${SOFIA_SESSION_ID}"
+    echo "root=${SOFIA_PROJECT_ROOT} format=${SOFIA_FORMAT} tag=${SOFIA_TAG} source=${SOFIA_SOURCE} sid=${SOFIA_SESSION_ID} plugin=${SOFIA_PLUGIN}"
     ;;
   boom)
     echo "hello: about to crash" 1>&2

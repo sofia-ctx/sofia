@@ -164,6 +164,11 @@ func childEnv(_ Descriptor, settings map[string]string) []string {
 	}
 	put("SOFIA_PROJECT_ROOT", firstNonEmpty(vals["SOFIA_PROJECT_ROOT"], projectRoot()))
 	put("SOFIA_FORMAT", firstNonEmpty(vals["SOFIA_FORMAT"], "toon"))
+	// SOFIA_PLUGIN marks the child as a plugin subprocess so a plugin built
+	// from sofia's own libraries can suppress its own call-log line — the host
+	// already logs the invocation (see Invoke), and without this a plugin that
+	// wraps its command in calllog.Run would double-count every call.
+	put("SOFIA_PLUGIN", "1")
 	put("SOFIA_TAG", calllog.ProjectTag())
 	put("SOFIA_SOURCE", calllog.Source())
 	if sid := calllog.SessionID(); sid != "" {

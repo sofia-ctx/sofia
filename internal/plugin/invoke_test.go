@@ -107,6 +107,9 @@ func TestInvoke_GreetStdoutEnvAndOneLogLine(t *testing.T) {
 	if !strings.Contains(got, "format=md") || !strings.Contains(got, "tag=myproj") {
 		t.Errorf("plugin did not receive the SOFIA_* env:\n%s", got)
 	}
+	if !strings.Contains(got, "plugin=1") {
+		t.Errorf("plugin did not receive SOFIA_PLUGIN=1:\n%s", got)
+	}
 
 	lines := logLines(t, logDir)
 	if len(lines) != 1 {
