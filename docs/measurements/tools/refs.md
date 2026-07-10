@@ -54,9 +54,18 @@ doesn't have — `kind` and `enclosing` — so on symbols with many short hits
 it typically costs a bit more than the bare line-per-hit baseline. What it
 buys instead is the elimination of the *next* step: opening each of those
 16–34 call sites by hand to see what function they're in. That fan-of-reads
-comparison is the one that would show the real win, but it needs an agent-
-turn (paid) pilot to measure honestly — out of scope for this tool-output
-measurement.
+comparison is the one that shows the real win, and a paid agent-turn A/B now
+measures it. On a task that needs every call site's enclosing context (map all
+uses of `calllog.Counter`: pattern + deviations), an `sf`-equipped agent vs a
+plain grep+read agent, sonnet, n=3 median: **18 vs 42 tool-call turns (−57%),
+$0.56 vs $0.97 (−43%), and 587K vs 1.23M cache-read tokens (−52%)** — the
+plain arm's grep-then-open fan re-reads its whole context each turn, which the
+per-call footer here structurally cannot see. So the footer is honest about
+one call's bytes but *undersells* `refs`; the value is the collapsed read-fan.
+(High variance — the win is a median, not every run; both arms scored < 50 on
+the hard rubric, so refs made the map cheaper and slightly more complete, not
+correct. Full pre-registration + numbers: sofia-ctx/evaluation
+`results/2026-07-11-refs-turn-collapse.md`.)
 
 ## A note on hit counts: occurrences, not lines
 
