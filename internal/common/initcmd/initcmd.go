@@ -44,8 +44,10 @@ const (
 
 // Status values for an Item. statusWould only appears under --check: a step
 // that would write in a real run, without having written anything.
+// statusRemoved is revert's counterpart to statusWritten.
 const (
 	statusWritten = "written"
+	statusRemoved = "removed"
 	statusOK      = "ok"
 	statusSkipped = "skipped"
 	statusWould   = "would"
@@ -65,6 +67,7 @@ type Result struct {
 	ClaudeInProject bool   `json:"claude_in_project"`
 	CodexOnMachine  bool   `json:"codex_on_machine"`
 	Check           bool   `json:"check,omitempty"`
+	Revert          bool   `json:"revert,omitempty"`
 	Items           []Item `json:"items"`
 }
 
@@ -74,13 +77,19 @@ type Options struct {
 	Corporate bool
 	Force     bool
 	Check     bool
+	Revert    bool
 	Format    string
 }
 
-// Run executes the onboarding, renders the report, and logs the call.
+// Run executes the onboarding (or its revert), renders the report, and logs
+// the call.
 func Run(opts Options, w io.Writer) error {
 	tracker := calllog.Start("init", logArgs(opts))
-	res, err := execute(opts)
+	step := execute
+	if opts.Revert {
+		step = executeRevert
+	}
+	res, err := step(opts)
 	if err != nil {
 		tracker.Finish(err)
 		return err
@@ -89,7 +98,7 @@ func Run(opts Options, w io.Writer) error {
 	written, skipped := 0, 0
 	for _, it := range res.Items {
 		switch it.Status {
-		case statusWritten:
+		case statusWritten, statusRemoved:
 			written++
 		case statusSkipped:
 			skipped++
@@ -117,6 +126,9 @@ func logArgs(opts Options) []string {
 	}
 	if opts.Check {
 		args = append(args, "--check")
+	}
+	if opts.Revert {
+		args = append(args, "--revert")
 	}
 	return args
 }
@@ -610,6 +622,9 @@ func renderTOON(w io.Writer, res *Result) {
 	if res.Check {
 		fmt.Fprintln(w, "# dry run — nothing written")
 	}
+	if res.Revert {
+		fmt.Fprintln(w, "# revert — removing sf wiring")
+	}
 	fmt.Fprintf(w, "# claude on machine: %s\n", yesNo(res.ClaudeOnMachine))
 	fmt.Fprintf(w, "# claude in project: %s\n", yesNo(res.ClaudeInProject))
 	fmt.Fprintf(w, "# codex on machine: %s\n", yesNo(res.CodexOnMachine))
@@ -622,6 +637,10 @@ func renderTOON(w io.Writer, res *Result) {
 func renderMarkdown(w io.Writer, res *Result) {
 	if res.Check {
 		fmt.Fprintln(w, "# dry run — nothing written")
+		fmt.Fprintln(w)
+	}
+	if res.Revert {
+		fmt.Fprintln(w, "# revert — removing sf wiring")
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "**claude on machine:** %s  \n**claude in project:** %s  \n**codex on machine:** %s\n\n",

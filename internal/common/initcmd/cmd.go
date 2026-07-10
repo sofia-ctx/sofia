@@ -11,7 +11,7 @@ import (
 // NewCommand returns the `init` Cobra command (`sf init`).
 func NewCommand() *cobra.Command {
 	var project string
-	var corporate, force, check bool
+	var corporate, force, check, revert bool
 	var format string
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -38,7 +38,14 @@ no Codex config — for locked-down environments where only instruction files
 are writable.
 
 --check reports what each step would do without writing anything — no files,
-no dirs, no .sf-bak backups.`,
+no dirs, no .sf-bak backups.
+
+--revert undoes all of the above: the managed AGENTS.md block, the installed
+skills, the PreToolUse hooks and the MCP registrations are removed
+surgically, leaving everything else in those files untouched (the .sf-bak
+backups are kept, not restored — they may predate later hand edits). A
+hand-edited skill copy is left alone unless --force. Combines with --check
+for a dry run.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
@@ -46,10 +53,12 @@ no dirs, no .sf-bak backups.`,
 	cmd.Flags().BoolVar(&corporate, "corporate", false, "only write the AGENTS.md block — no .claude/.mcp.json writes")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite a hand-edited/stale installed skill")
 	cmd.Flags().BoolVar(&check, "check", false, "report what init would do without writing anything")
+	cmd.Flags().BoolVar(&revert, "revert", false, "undo init: remove the managed block, skills, hooks and MCP registrations")
+	cmd.MarkFlagsMutuallyExclusive("revert", "corporate")
 	cliflags.AttachFormatFlags(cmd, &format)
 
 	cmd.RunE = func(_ *cobra.Command, _ []string) error {
-		return Run(Options{Project: project, Corporate: corporate, Force: force, Check: check, Format: format}, os.Stdout)
+		return Run(Options{Project: project, Corporate: corporate, Force: force, Check: check, Revert: revert, Format: format}, os.Stdout)
 	}
 	return cmd
 }

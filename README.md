@@ -293,10 +293,19 @@ than failing the call.
 ```bash
 sf init                # full onboarding for the current directory
 sf init --project ../other-repo
+sf init --check         # dry run: report what each step would do
 sf init --force         # also overwrite a hand-edited installed skill
 sf init --corporate     # AGENTS.md only — no ~/.claude or .mcp.json writes,
                         # for locked-down environments
+sf init --revert        # undo it all; --check combines for a dry run
 ```
+
+`--revert` removes everything init wired: the managed `AGENTS.md` block (the
+file itself when it held nothing else), the installed skills, the PreToolUse
+hooks and the MCP registrations — surgically, leaving every other key, hook
+and line in those files untouched. The `.sf-bak` backups are kept rather than
+restored (they may predate later hand edits); a hand-edited skill copy is
+left alone unless `--force`.
 
 Codex CLI is wired the same way, automatically, whenever `sf init` detects
 it on the machine (`~/.codex` or `$CODEX_HOME`) — the hook and MCP server go
