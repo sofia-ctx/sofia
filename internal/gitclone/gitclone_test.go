@@ -64,6 +64,44 @@ func TestRepoName(t *testing.T) {
 	}
 }
 
+func TestRepoSlug(t *testing.T) {
+	cases := []struct {
+		in                string
+		host, owner, repo string
+		wantErr           bool
+	}{
+		{in: "https://github.com/o/repo.git", host: "github.com", owner: "o", repo: "repo"},
+		{in: "https://github.com/o/repo", host: "github.com", owner: "o", repo: "repo"},
+		{in: "https://github.com/o/repo/", host: "github.com", owner: "o", repo: "repo"},
+		{in: "http://github.com/o/repo", host: "github.com", owner: "o", repo: "repo"},
+		{in: "ssh://git@github.com/o/repo.git", host: "github.com", owner: "o", repo: "repo"},
+		{in: "git://github.com/o/repo.git", host: "github.com", owner: "o", repo: "repo"},
+		{in: "git@github.com:o/repo.git", host: "github.com", owner: "o", repo: "repo"},
+		{in: "git@github.com:o/repo", host: "github.com", owner: "o", repo: "repo"},
+		{in: "https://github.com/some/nested/o/repo", host: "github.com", owner: "o", repo: "repo"},
+		{in: "https://github.com/repo", wantErr: true},
+		{in: "https://github.com/", wantErr: true},
+		{in: "not-a-url", wantErr: true},
+		{in: "", wantErr: true},
+	}
+	for _, c := range cases {
+		host, owner, repo, err := RepoSlug(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("RepoSlug(%q) = (%q,%q,%q), want error", c.in, host, owner, repo)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("RepoSlug(%q): unexpected error: %v", c.in, err)
+			continue
+		}
+		if host != c.host || owner != c.owner || repo != c.repo {
+			t.Errorf("RepoSlug(%q) = (%q,%q,%q), want (%q,%q,%q)", c.in, host, owner, repo, c.host, c.owner, c.repo)
+		}
+	}
+}
+
 // requireGit skips the test when git isn't on PATH — these tests exercise
 // real clones, not a mock.
 func requireGit(t *testing.T) {

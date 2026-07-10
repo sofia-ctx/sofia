@@ -51,6 +51,48 @@ func RepoName(rawurl string) (string, error) {
 	return name, nil
 }
 
+// RepoSlug parses a git remote URL into its host and the last two path
+// segments (owner, repo) — the GitHub "owner/repo" a release lives under. It
+// understands the same URL and scp-like forms as RepoName (RepoName gives
+// only the repo, discarding the owner and host this needs). A trailing
+// ".git" and trailing slash are stripped; fewer than two path segments is an
+// error, since there is then no owner to report.
+func RepoSlug(rawurl string) (host, owner, repo string, err error) {
+	s := strings.TrimRight(rawurl, "/")
+	if s == "" {
+		return "", "", "", fmt.Errorf("cannot derive a repo slug from %q", rawurl)
+	}
+	var path string
+	if i := strings.Index(s, "://"); i >= 0 {
+		rest := s[i+3:]
+		if at := strings.IndexByte(rest, '@'); at >= 0 { // strip ssh://git@ userinfo
+			rest = rest[at+1:]
+		}
+		slash := strings.IndexByte(rest, '/')
+		if slash < 0 {
+			return "", "", "", fmt.Errorf("cannot derive a repo slug from %q", rawurl)
+		}
+		host, path = rest[:slash], rest[slash+1:]
+	} else if at := strings.IndexByte(s, '@'); at >= 0 {
+		// scp-like shorthand: git@host:owner/repo(.git)
+		colon := strings.IndexByte(s[at:], ':')
+		if colon < 0 {
+			return "", "", "", fmt.Errorf("cannot derive a repo slug from %q", rawurl)
+		}
+		colon += at
+		host, path = s[at+1:colon], s[colon+1:]
+	} else {
+		return "", "", "", fmt.Errorf("cannot derive a repo slug from %q", rawurl)
+	}
+
+	path = strings.TrimSuffix(strings.Trim(path, "/"), ".git")
+	segs := strings.Split(path, "/")
+	if len(segs) < 2 || segs[len(segs)-2] == "" || segs[len(segs)-1] == "" {
+		return "", "", "", fmt.Errorf("cannot derive owner/repo from %q (need at least two path segments)", rawurl)
+	}
+	return host, segs[len(segs)-2], segs[len(segs)-1], nil
+}
+
 // CloneShallow clones url at ref into dst (which must not already exist) and
 // returns the commit it landed on. ref is a branch or tag name; "" clones the
 // remote's default branch. Commit SHAs are not supported — `git clone

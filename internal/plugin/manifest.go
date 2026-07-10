@@ -49,6 +49,10 @@ type Manifest struct {
 	// Adapter is reserved for Tier 1 (declarative YAML adapters). It is parsed
 	// and preserved but not consumed by the subprocess tier.
 	Adapter *Adapter `yaml:"adapter" json:"adapter,omitempty"`
+	// Release tells the host how to fetch a prebuilt exec from a GitHub release
+	// when a URL install's clone shipped no binary. Optional/nil-able (older sf
+	// ignores it; a local/dir install never consults it).
+	Release *Release `yaml:"release" json:"release,omitempty"`
 }
 
 // Command is one CLI subcommand the plugin exposes under `sf <name>`.
@@ -91,6 +95,24 @@ type Adapter struct {
 	Kind string         `yaml:"kind" json:"kind,omitempty"`
 	Spec map[string]any `yaml:",inline" json:"spec,omitempty"`
 }
+
+// Release declares where to fetch a prebuilt executable from a GitHub release
+// when a URL install's clone ships no binary (see fetchReleaseBinary). It is
+// consulted only for a managed plugin that isn't adapter-only and whose clone
+// has no runnable exec — a plugin that ships its binary in the repo, or a pure
+// adapter, never triggers a fetch even if this block is present.
+type Release struct {
+	// Asset is a filename template, e.g. "myplugin_{os}_{arch}", expanded with
+	// this build's runtime.GOOS/GOARCH (goreleaser's {{.Os}}/{{.Arch}}
+	// convention with formats:[binary]). Required when Release is set.
+	Asset string `yaml:"asset" json:"asset,omitempty"`
+	// GitHub optionally overrides the "owner/repo" the release is fetched
+	// from; unset infers it from the plugin's install URL.
+	GitHub string `yaml:"github" json:"github,omitempty"`
+}
+
+// HasRelease reports whether the manifest declares a release-fetch block.
+func (m Manifest) HasRelease() bool { return m.Release != nil }
 
 // Config decodes the adapter block into a typed, host-interpreted adapter.Config
 // (root markers, extensions, layer globs). The result is not validated — call
