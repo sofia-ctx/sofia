@@ -17,13 +17,14 @@ import (
 	"github.com/sofia-ctx/sofia/internal/gitclone"
 )
 
-// githubAPIBase and githubDLBase are the GitHub API and release-download
-// hosts release-fetch talks to. They are package vars, not constants, so
-// tests can point them at an httptest server instead of the real GitHub.
-var (
-	githubAPIBase = "https://api.github.com"
-	githubDLBase  = "https://github.com"
-)
+// githubAPIBase is the GitHub REST API host release-fetch talks to. Release
+// metadata and asset downloads both go through it (an asset is fetched from
+// its API endpoint with Accept: application/octet-stream, which redirects to a
+// signed CDN URL) — the only path that works for a private repo, since the
+// public github.com/.../releases/download/... URLs 404 without a browser
+// session. It is a package var, not a constant, so tests can point it at an
+// httptest server instead of the real GitHub.
+var githubAPIBase = "https://api.github.com"
 
 // releaseUserAgent identifies sf to GitHub's API — required for
 // unauthenticated requests, and generally good manners.
@@ -70,22 +71,26 @@ func fetchReleaseBinary(url, ref, installedDir string, m Manifest) (asset, sha s
 	}
 
 	ctx := context.Background()
-	tag := ref
-	if tag == "" {
-		tag, err = latestReleaseTag(ctx, owner, repo)
-		if err != nil {
-			return "", "", fmt.Errorf("resolve latest release for %s/%s: %w", owner, repo, err)
-		}
+	rel, err := resolveRelease(ctx, owner, repo, ref)
+	if err != nil {
+		return "", "", err
 	}
 
-	base := fmt.Sprintf("%s/%s/%s/releases/download/%s", githubDLBase, owner, repo, tag)
-	tmpPath, err := downloadAsset(ctx, base+"/"+asset, installedDir)
+	assetURL, ok := rel.assets[asset]
+	if !ok {
+		return "", "", fmt.Errorf("release %s of %s/%s has no asset %q", rel.tag, owner, repo, asset)
+	}
+	tmpPath, err := downloadAsset(ctx, assetURL, installedDir)
 	if err != nil {
 		return "", "", fmt.Errorf("download %s: %w", asset, err)
 	}
 	defer func() { _ = os.Remove(tmpPath) }() // no-op once renamed into place below
 
-	sums, err := downloadChecksums(ctx, base+"/checksums.txt")
+	sumURL, ok := rel.assets["checksums.txt"]
+	if !ok {
+		return "", "", fmt.Errorf("release %s of %s/%s has no checksums.txt", rel.tag, owner, repo)
+	}
+	sums, err := downloadChecksums(ctx, sumURL)
 	if err != nil {
 		return "", "", fmt.Errorf("download checksums.txt: %w", err)
 	}
@@ -137,22 +142,25 @@ func releaseRepo(url string, m Manifest) (owner, repo string, err error) {
 	return owner, repo, nil
 }
 
-// releaseGet performs one GET with the release User-Agent, through
-// releaseHTTPClient (so its redirect policy applies). When a GitHub token is
-// in the environment it authenticates the request, which is what makes a
-// private repo's release assets reachable; without one the request is
-// unauthenticated and the public path is unchanged.
-func releaseGet(ctx context.Context, url string) (*http.Response, error) {
+// releaseGet performs one GET with the release User-Agent (and, when non-empty,
+// the given Accept), through releaseHTTPClient so its redirect policy applies.
+// When a GitHub token is in the environment it authenticates the request, which
+// is what makes a private repo's release metadata and assets reachable; without
+// one the request is unauthenticated and the public path is unchanged.
+func releaseGet(ctx context.Context, url, accept string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", releaseUserAgent)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	if tok := releaseToken(); tok != "" {
 		// GitHub 302-redirects an authenticated asset download to a signed
 		// CDN URL on a different host; net/http never forwards the
 		// Authorization header across a host change, so the token reaches
-		// only github.com/api.github.com and never the CDN.
+		// only api.github.com and never the CDN.
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	return releaseHTTPClient.Do(req)
@@ -172,41 +180,69 @@ func releaseToken() string {
 	return ""
 }
 
-// latestReleaseTag resolves a repo's latest-release tag via GitHub's REST
-// API, for a plugin install with no pinned ref.
-func latestReleaseTag(ctx context.Context, owner, repo string) (string, error) {
+// releaseMeta is a resolved GitHub release: its tag and a name→asset-URL map.
+// The asset URLs are api.github.com/.../releases/assets/{id} endpoints;
+// fetching one with Accept: application/octet-stream returns the file (via a
+// signed-CDN redirect). This is deliberately not the public
+// github.com/.../releases/download/... URL, which 404s for a private repo.
+type releaseMeta struct {
+	tag    string
+	assets map[string]string
+}
+
+// resolveRelease fetches a repo's release metadata from GitHub's REST API: the
+// release tagged ref, or — when ref is empty — the repo's latest release. The
+// returned map lets fetchReleaseBinary look up an asset's download endpoint by
+// filename, which is how it stays private-repo-safe.
+func resolveRelease(ctx context.Context, owner, repo, ref string) (releaseMeta, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", githubAPIBase, owner, repo)
-	resp, err := releaseGet(reqCtx, url)
+	var path string
+	if ref != "" {
+		path = fmt.Sprintf("/repos/%s/%s/releases/tags/%s", owner, repo, ref)
+	} else {
+		path = fmt.Sprintf("/repos/%s/%s/releases/latest", owner, repo)
+	}
+	url := githubAPIBase + path
+	resp, err := releaseGet(reqCtx, url, "application/vnd.github+json")
 	if err != nil {
-		return "", err
+		return releaseMeta{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s: HTTP %d", url, resp.StatusCode)
+		return releaseMeta{}, fmt.Errorf("GET %s: HTTP %d", url, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return releaseMeta{}, err
 	}
 	var doc struct {
 		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"assets"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return "", fmt.Errorf("parse release metadata: %w", err)
+		return releaseMeta{}, fmt.Errorf("parse release metadata: %w", err)
 	}
 	if doc.TagName == "" {
-		return "", fmt.Errorf("release metadata for %s/%s has no tag_name", owner, repo)
+		return releaseMeta{}, fmt.Errorf("release metadata for %s/%s has no tag_name", owner, repo)
 	}
-	return doc.TagName, nil
+	assets := make(map[string]string, len(doc.Assets))
+	for _, a := range doc.Assets {
+		assets[a.Name] = a.URL
+	}
+	return releaseMeta{tag: doc.TagName, assets: assets}, nil
 }
 
-// downloadChecksums fetches and parses a release's checksums.txt.
+// downloadChecksums fetches and parses a release's checksums.txt from its API
+// asset endpoint; Accept: application/octet-stream makes GitHub serve the file
+// bytes (via a redirect) rather than the asset's JSON metadata.
 func downloadChecksums(ctx context.Context, url string) (map[string]string, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	resp, err := releaseGet(reqCtx, url)
+	resp, err := releaseGet(reqCtx, url, "application/octet-stream")
 	if err != nil {
 		return nil, err
 	}
@@ -241,12 +277,14 @@ func parseChecksums(text string) map[string]string {
 
 // downloadAsset streams url's body into a temp file created inside dir (so
 // the later rename into the plugin dir is same-filesystem and atomic),
-// returning its path. The caller is responsible for removing it on any path
-// that doesn't end in a successful rename.
+// returning its path. url is an API asset endpoint; Accept:
+// application/octet-stream makes GitHub serve the binary (via a redirect)
+// rather than the asset's JSON metadata. The caller is responsible for
+// removing the temp file on any path that doesn't end in a successful rename.
 func downloadAsset(ctx context.Context, url, dir string) (path string, err error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	resp, err := releaseGet(reqCtx, url)
+	resp, err := releaseGet(reqCtx, url, "application/octet-stream")
 	if err != nil {
 		return "", err
 	}

@@ -31,26 +31,40 @@ func TestAssetName(t *testing.T) {
 	}
 }
 
-// releaseServer spins an httptest server serving a fake GitHub API + release
-// downloads for owner/repo "o"/"r" at tag "v1.2.3": a latest-release lookup,
-// an asset, and its checksums.txt. latestHits counts calls to
+// releaseServer spins an httptest server serving a fake GitHub REST API for
+// owner/repo "o"/"r" at tag "v1.2.3": a release lookup (latest and by-tag) that
+// returns an assets list, and the two API asset endpoints those assets point
+// at (the binary and its checksums.txt). latestHits counts calls to
 // /repos/o/r/releases/latest, so a test can assert that path was (or wasn't)
-// consulted (e.g. when a ref pins the tag).
+// consulted (e.g. when a ref pins the tag, resolveRelease hits .../tags/... and
+// this stays zero). Asset URLs are absolute — filled from srv.URL once it's up.
 func releaseServer(t *testing.T, assetName, assetBody, checksumsBody string) (srv *httptest.Server, latestHits *int64) {
 	t.Helper()
 	var hits int64
+	var base string
+	rel := func(w http.ResponseWriter) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tag_name": "v1.2.3",
+			"assets": []map[string]string{
+				{"name": assetName, "url": base + "/repos/o/r/releases/assets/1"},
+				{"name": "checksums.txt", "url": base + "/repos/o/r/releases/assets/2"},
+			},
+		})
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt64(&hits, 1)
-		_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v1.2.3"})
+		rel(w)
 	})
-	mux.HandleFunc("/o/r/releases/download/v1.2.3/"+assetName, func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/repos/o/r/releases/tags/v1.2.3", func(w http.ResponseWriter, _ *http.Request) { rel(w) })
+	mux.HandleFunc("/repos/o/r/releases/assets/1", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(assetBody))
 	})
-	mux.HandleFunc("/o/r/releases/download/v1.2.3/checksums.txt", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/repos/o/r/releases/assets/2", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(checksumsBody))
 	})
 	srv = httptest.NewServer(mux)
+	base = srv.URL
 	t.Cleanup(srv.Close)
 	return srv, &hits
 }
@@ -68,9 +82,9 @@ func TestFetchReleaseBinary(t *testing.T) {
 
 	setBases := func(t *testing.T, url string) {
 		t.Helper()
-		oldAPI, oldDL := githubAPIBase, githubDLBase
-		githubAPIBase, githubDLBase = url, url
-		t.Cleanup(func() { githubAPIBase, githubDLBase = oldAPI, oldDL })
+		old := githubAPIBase
+		githubAPIBase = url
+		t.Cleanup(func() { githubAPIBase = old })
 	}
 
 	t.Run("happy path: latest release, correct checksum", func(t *testing.T) {
@@ -231,9 +245,9 @@ func TestInstallFromGit_ReleaseFetch(t *testing.T) {
 	sum := sha256Hex(body)
 	srv, _ := releaseServer(t, asset, body, fmt.Sprintf("%s  %s\n", sum, asset))
 
-	oldAPI, oldDL := githubAPIBase, githubDLBase
-	githubAPIBase, githubDLBase = srv.URL, srv.URL
-	t.Cleanup(func() { githubAPIBase, githubDLBase = oldAPI, oldDL })
+	old := githubAPIBase
+	githubAPIBase = srv.URL
+	t.Cleanup(func() { githubAPIBase = old })
 
 	repo := releaseFetchRepo(t, tmpl)
 	// The clone itself is a real local repo (git needs a real URL to clone);
@@ -311,26 +325,33 @@ func TestReleaseFetch_Auth(t *testing.T) {
 	rec := func(r *http.Request) { mu.Lock(); seen[r.URL.Path] = r.Header.Get("Authorization"); mu.Unlock() }
 	auth := func(p string) string { mu.Lock(); defer mu.Unlock(); return seen[p] }
 
-	dl := "/o/r/releases/download/v1.2.3/"
+	var base string
+	rel := func(w http.ResponseWriter) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tag_name": "v1.2.3",
+			"assets": []map[string]string{
+				{"name": asset, "url": base + "/repos/o/r/releases/assets/1"},
+				{"name": "checksums.txt", "url": base + "/repos/o/r/releases/assets/2"},
+			},
+		})
+	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		rec(r)
-		_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v1.2.3"})
-	})
-	mux.HandleFunc(dl+asset, func(w http.ResponseWriter, r *http.Request) { rec(r); _, _ = w.Write([]byte(body)) })
-	mux.HandleFunc(dl+"checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) { rec(r); rel(w) })
+	mux.HandleFunc("/repos/o/r/releases/assets/1", func(w http.ResponseWriter, r *http.Request) { rec(r); _, _ = w.Write([]byte(body)) })
+	mux.HandleFunc("/repos/o/r/releases/assets/2", func(w http.ResponseWriter, r *http.Request) {
 		rec(r)
 		_, _ = fmt.Fprintf(w, "%s  %s\n", sum, asset)
 	})
 	srv := httptest.NewServer(mux)
+	base = srv.URL
 	t.Cleanup(srv.Close)
 
-	oldAPI, oldDL := githubAPIBase, githubDLBase
-	githubAPIBase, githubDLBase = srv.URL, srv.URL
-	t.Cleanup(func() { githubAPIBase, githubDLBase = oldAPI, oldDL })
+	old := githubAPIBase
+	githubAPIBase = srv.URL
+	t.Cleanup(func() { githubAPIBase = old })
 
 	m := Manifest{Exec: "foo", Release: &Release{Asset: tmpl}}
-	paths := []string{"/repos/o/r/releases/latest", dl + asset, dl + "checksums.txt"}
+	paths := []string{"/repos/o/r/releases/latest", "/repos/o/r/releases/assets/1", "/repos/o/r/releases/assets/2"}
 
 	t.Run("token authenticates every request", func(t *testing.T) {
 		t.Setenv("GITHUB_TOKEN", "")
