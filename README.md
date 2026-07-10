@@ -314,6 +314,37 @@ into `$CODEX_HOME/config.toml`, the skill into `$HOME/.agents/skills`. See
 tool — reads happen via `Bash`), manual TOML snippets, and the
 `--corporate` story under enterprise lockdown.
 
+### `sf claude` — launch Claude Code for a project
+
+Pairs with `sf init`: `init` wires a project up (AGENTS.md, skill, hook, MCP),
+`sf claude` launches into it. It's a thin wrapper around the `claude` CLI —
+the only binding is running with cwd set to the project dir, so claude loads
+that project's own root `AGENTS.md`/`CLAUDE.md` the normal way. No separate
+instruction tree, no injected prompt unless you opt in.
+
+```bash
+sf claude                        # launch claude in the current directory
+sf claude myproj                 # launch $SF_CLAUDE_DIR/myproj
+sf claude myproj 2               # fork s2 of myproj (needs dev/worktree.sh)
+sf claude --dir ~/code/myproj
+sf claude myproj --model opus --permission-mode plan
+sf claude myproj --task "add error handling to fetchUser in api.js"
+sf claude myproj --dry-run       # print the resolved command, don't launch
+```
+
+Project resolution: `--dir` wins outright; else a bare project name resolves
+to `$SF_CLAUDE_DIR/<project>` (the projects root — set it once and every
+project name resolves under it); with neither, it's the current directory.
+Set `$SF_CLAUDE_PROMPT_FILE` to a file of extra system-prompt text if you
+want claude to see something beyond `AGENTS.md`; unset, none is added.
+
+A second positional forks the session into an isolated git-worktree copy of
+the project via that project's own `dev/worktree.sh` (own branch, own
+stack), created on first use — a bare number `N` maps to fork `sN`.
+
+`--task`/`-t` runs claude non-interactively (`claude -p`) and exits with its
+status code, for scripting or CI.
+
 ### `sf composer` — PHP package tree overview
 
 Compact views over the `composer.json` files in a tree instead of `cat`-ing
@@ -640,7 +671,8 @@ sofia/
 │   ├── common/vue/               # `sf vue routes` — vue-router route map
 │   ├── common/worktrees/         # `sf worktrees` — cross-project worktree overview
 │   ├── envfile/                  # .env load/save/prompt
-│   └── history/                  # `sf history` — reads and aggregates the call log
+│   ├── history/                  # `sf history` — reads and aggregates the call log
+│   └── launch/                   # `sf claude` — launch Claude Code for a project
 ├── pkg/                          # public Go SDK (Tier 3, semver-stable) — see docs/sdk.md
 │   ├── cliflags/                 # shared flag helpers (--md/--json, dir completion, arg hints)
 │   ├── codectx/                  # enclosing-function lookup for PHP/TS/Twig/INI
