@@ -120,6 +120,7 @@ func Collect(_ Options) (*Result, error) {
 		checkStaleness(),
 		checkPath(),
 		checkCompletions(),
+		checkClaude(),
 		checkHook(),
 		checkSkill(),
 		checkCalllog(),
@@ -359,6 +360,22 @@ func checkCompletions() Check {
 	}
 	c.Status = statusWarn
 	c.Detail = fmt.Sprintf("missing: %s; try: make install", strings.Join(missing, ","))
+	return c
+}
+
+// checkClaude verifies the claude CLI is on PATH — `sf claude` execs it, and
+// without this check a missing binary only surfaces as a raw "not found in
+// PATH" error at launch time instead of up front in the health report.
+func checkClaude() Check {
+	c := Check{Name: "claude"}
+	p, err := exec.LookPath("claude")
+	if err != nil {
+		c.Status = statusWarn
+		c.Detail = "claude CLI not found — sf claude needs it"
+		return c
+	}
+	c.Status = statusOK
+	c.Detail = "claude CLI present (sf claude): " + p
 	return c
 }
 

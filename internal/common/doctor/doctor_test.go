@@ -10,6 +10,26 @@ import (
 	"github.com/sofia-ctx/sofia/internal/pack"
 )
 
+func TestCheckClaude(t *testing.T) {
+	t.Run("present", func(t *testing.T) {
+		dir := t.TempDir()
+		fake := filepath.Join(dir, "claude")
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		if c := checkClaude(); c.Status != statusOK {
+			t.Errorf("status = %q, want %q", c.Status, statusOK)
+		}
+	})
+	t.Run("absent", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if c := checkClaude(); c.Status != statusWarn {
+			t.Errorf("status = %q, want %q", c.Status, statusWarn)
+		}
+	})
+}
+
 func TestClassifyStaleness(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
