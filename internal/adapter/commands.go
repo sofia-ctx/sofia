@@ -7,9 +7,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/cliflags"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/common/refs"
+	"github.com/sofia-ctx/sofia/pkg/cliflags"
 )
 
 // unclassifiedLayer is the bucket a path lands in when no declared layer claims

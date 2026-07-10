@@ -28,7 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sofia-ctx/sofia/internal/envfile"
-	"github.com/sofia-ctx/sofia/internal/tokens"
+	"github.com/sofia-ctx/sofia/pkg/tokens"
 )
 
 // ProjectsDirKey is the env/.env key holding the Claude Code projects root.

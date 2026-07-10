@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/toon"
-	"github.com/sofia-ctx/sofia/internal/walker"
+	"github.com/sofia-ctx/sofia/pkg/toon"
+	"github.com/sofia-ctx/sofia/pkg/walker"
 )
 
 // Options controls a `vue routes` run.

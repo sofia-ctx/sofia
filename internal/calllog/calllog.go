@@ -24,7 +24,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/sofia-ctx/sofia/internal/tokens"
+	"github.com/sofia-ctx/sofia/pkg/tokens"
 )
 
 type Entry struct {

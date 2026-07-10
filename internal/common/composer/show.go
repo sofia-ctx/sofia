@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/toon"
-	"github.com/sofia-ctx/sofia/internal/walker"
+	"github.com/sofia-ctx/sofia/pkg/toon"
+	"github.com/sofia-ctx/sofia/pkg/walker"
 )
 
 // ShowOptions controls a `composer show` run.

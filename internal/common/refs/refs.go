@@ -19,13 +19,13 @@ import (
 	"sync"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/codectx"
 	"github.com/sofia-ctx/sofia/internal/common/code/gocode"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
-	"github.com/sofia-ctx/sofia/internal/emit"
-	"github.com/sofia-ctx/sofia/internal/matcher"
-	"github.com/sofia-ctx/sofia/internal/tokens"
-	"github.com/sofia-ctx/sofia/internal/walker"
+	"github.com/sofia-ctx/sofia/pkg/codectx"
+	"github.com/sofia-ctx/sofia/pkg/emit"
+	"github.com/sofia-ctx/sofia/pkg/matcher"
+	"github.com/sofia-ctx/sofia/pkg/tokens"
+	"github.com/sofia-ctx/sofia/pkg/walker"
 )
 
 type Options struct {

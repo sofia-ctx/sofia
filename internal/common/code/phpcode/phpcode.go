@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sofia-ctx/sofia/internal/common/php"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/php"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // Summarize writes the structural summary of the PHP file at path to w. When

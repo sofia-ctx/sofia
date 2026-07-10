@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 var hitFields = []string{"file", "line", "col", "enclosing", "text"}

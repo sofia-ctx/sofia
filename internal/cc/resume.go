@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/cliflags"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/cliflags"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 const (

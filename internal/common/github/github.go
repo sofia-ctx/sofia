@@ -20,7 +20,7 @@ import (
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/internal/common/composer"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // Options controls a `github ci` run.

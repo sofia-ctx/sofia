@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // Options carries flag/arg state. A non-empty Message records a gripe; an empty

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofia-ctx/sofia/internal/common/php"
+	"github.com/sofia-ctx/sofia/pkg/php"
 )
 
 // methodVia pairs a method with the short name of the trait or parent class

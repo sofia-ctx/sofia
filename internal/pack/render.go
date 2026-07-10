@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // listRow is the flat per-pack summary `sf pack list` renders.

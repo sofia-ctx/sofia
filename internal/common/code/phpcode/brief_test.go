@@ -3,7 +3,7 @@ package phpcode
 import (
 	"testing"
 
-	"github.com/sofia-ctx/sofia/internal/common/php"
+	"github.com/sofia-ctx/sofia/pkg/php"
 )
 
 const briefClassSrc = `<?php

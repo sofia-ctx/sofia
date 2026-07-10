@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sofia-ctx/sofia/internal/cliflags"
+	"github.com/sofia-ctx/sofia/pkg/cliflags"
 )
 
 // NewCommand returns the `packagist` group (`sf packagist …`).

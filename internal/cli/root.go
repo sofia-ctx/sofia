@@ -29,8 +29,8 @@ import (
 	"github.com/sofia-ctx/sofia/internal/mcpserver"
 	"github.com/sofia-ctx/sofia/internal/pack"
 	"github.com/sofia-ctx/sofia/internal/plugin"
-	"github.com/sofia-ctx/sofia/internal/strdist"
 	"github.com/sofia-ctx/sofia/internal/version"
+	"github.com/sofia-ctx/sofia/pkg/strdist"
 )
 
 // RootCmd is the master `sf` Cobra command. Subcommands attach in init()

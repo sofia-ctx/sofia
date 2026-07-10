@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofia-ctx/sofia/internal/common/php"
+	"github.com/sofia-ctx/sofia/pkg/php"
 )
 
 // TestEffectiveSurface checks the flattened public surface of a class that

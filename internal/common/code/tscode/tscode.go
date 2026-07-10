@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // Summarize writes the structural summary of the TS/Vue file at path to w.

@@ -30,9 +30,9 @@ import (
 	"github.com/sofia-ctx/sofia/internal/common/code/tscode"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/dedup"
-	"github.com/sofia-ctx/sofia/internal/emit"
-	"github.com/sofia-ctx/sofia/internal/tokens"
-	"github.com/sofia-ctx/sofia/internal/walker"
+	"github.com/sofia-ctx/sofia/pkg/emit"
+	"github.com/sofia-ctx/sofia/pkg/tokens"
+	"github.com/sofia-ctx/sofia/pkg/walker"
 )
 
 type Options struct {

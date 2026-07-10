@@ -8,7 +8,7 @@ import (
 
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/common/refs"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // grepGroup is one layer's slice of grep hits; refGroup the same for refs. Both

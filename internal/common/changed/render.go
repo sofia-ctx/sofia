@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 func renderTOON(w io.Writer, r *Result) {

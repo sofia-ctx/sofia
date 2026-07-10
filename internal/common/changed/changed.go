@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/emit"
 	"github.com/sofia-ctx/sofia/internal/gitexec"
+	"github.com/sofia-ctx/sofia/pkg/emit"
 )
 
 type Options struct {

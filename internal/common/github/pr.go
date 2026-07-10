@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // PROptions controls a `github pr` run.

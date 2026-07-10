@@ -22,7 +22,7 @@ import (
 
 	"github.com/sofia-ctx/sofia"
 	"github.com/sofia-ctx/sofia/internal/calllog"
-	"github.com/sofia-ctx/sofia/internal/toon"
+	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
 // Managed-block markers in AGENTS.md. The block is safe to replace wholesale

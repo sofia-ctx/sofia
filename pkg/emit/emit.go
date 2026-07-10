@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/sofia-ctx/sofia/internal/tokens"
+	"github.com/sofia-ctx/sofia/pkg/tokens"
 )
 
 // Result reports which branch SmallerOf chose, for call-log telemetry
