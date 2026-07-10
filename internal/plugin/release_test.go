@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -292,4 +293,76 @@ func releaseFetchRepo(t *testing.T, assetTmpl string) string {
 	mustGit(t, dir, "add", ".")
 	mustGit(t, dir, "commit", "--quiet", "-m", "init")
 	return dir
+}
+
+// TestReleaseFetch_Auth pins the private-repo path: with a token in the
+// environment every GitHub request release-fetch makes carries a bearer
+// Authorization header; with none the public path stays unauthenticated. The
+// server records the Authorization it saw per path; each fetch overwrites the
+// previous one, so a subtest reads the value its own fetch left behind.
+func TestReleaseFetch_Auth(t *testing.T) {
+	tmpl := "tool_{os}_{arch}"
+	asset := assetName(tmpl)
+	body := "binary-bytes\n"
+	sum := sha256Hex(body)
+
+	var mu sync.Mutex
+	seen := map[string]string{}
+	rec := func(r *http.Request) { mu.Lock(); seen[r.URL.Path] = r.Header.Get("Authorization"); mu.Unlock() }
+	auth := func(p string) string { mu.Lock(); defer mu.Unlock(); return seen[p] }
+
+	dl := "/o/r/releases/download/v1.2.3/"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		rec(r)
+		_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v1.2.3"})
+	})
+	mux.HandleFunc(dl+asset, func(w http.ResponseWriter, r *http.Request) { rec(r); _, _ = w.Write([]byte(body)) })
+	mux.HandleFunc(dl+"checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		rec(r)
+		_, _ = fmt.Fprintf(w, "%s  %s\n", sum, asset)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	oldAPI, oldDL := githubAPIBase, githubDLBase
+	githubAPIBase, githubDLBase = srv.URL, srv.URL
+	t.Cleanup(func() { githubAPIBase, githubDLBase = oldAPI, oldDL })
+
+	m := Manifest{Exec: "foo", Release: &Release{Asset: tmpl}}
+	paths := []string{"/repos/o/r/releases/latest", dl + asset, dl + "checksums.txt"}
+
+	t.Run("token authenticates every request", func(t *testing.T) {
+		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("GH_TOKEN", "secret-tok")
+		if _, _, err := fetchReleaseBinary("https://github.com/o/r", "", t.TempDir(), m); err != nil {
+			t.Fatalf("fetchReleaseBinary: %v", err)
+		}
+		for _, p := range paths {
+			if got := auth(p); got != "Bearer secret-tok" {
+				t.Errorf("%s Authorization = %q, want %q", p, got, "Bearer secret-tok")
+			}
+		}
+	})
+
+	t.Run("no token leaves the public path unauthenticated", func(t *testing.T) {
+		t.Setenv("GH_TOKEN", "")
+		t.Setenv("GITHUB_TOKEN", "")
+		if _, _, err := fetchReleaseBinary("https://github.com/o/r", "", t.TempDir(), m); err != nil {
+			t.Fatalf("fetchReleaseBinary: %v", err)
+		}
+		for _, p := range paths {
+			if got := auth(p); got != "" {
+				t.Errorf("%s Authorization = %q, want empty (public path)", p, got)
+			}
+		}
+	})
+
+	t.Run("GH_TOKEN wins over GITHUB_TOKEN", func(t *testing.T) {
+		t.Setenv("GITHUB_TOKEN", "actions-default")
+		t.Setenv("GH_TOKEN", "gh-cli")
+		if got := releaseToken(); got != "gh-cli" {
+			t.Errorf("releaseToken() = %q, want gh-cli", got)
+		}
+	})
 }

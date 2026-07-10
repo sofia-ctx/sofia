@@ -128,6 +128,14 @@ release** and let `sf plugin install` fetch the right one:
    install (`sf plugin install ./myplugin`), never consults `release:` — it's
    purely a fallback for the "clone has no exec" case.
 
+   **Private repos.** If the release lives in a private repo, export a token
+   (`GH_TOKEN`, or `GITHUB_TOKEN`) before installing — release-fetch sends it as
+   a bearer credential to GitHub, and nowhere else: GitHub redirects the
+   download to a signed CDN URL on another host and the token is dropped on that
+   hop. Declare `min_sf: "1.2.0"` so an sf without authenticated fetch reports a
+   clean "requires host protocol >= 1.2" instead of failing on a 404. sf never
+   stores the token; unset it and the public path is exactly as before.
+
 ## Adapter (Tier-1): a plugin with no code
 
 Some plugins don't need an executable at all — they just declare a project's

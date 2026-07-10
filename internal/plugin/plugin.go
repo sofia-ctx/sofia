@@ -80,7 +80,14 @@ package plugin
 // negotiates fine (same major); a plugin that *needs* release-fetch declares
 // `min_sf: "1.1.0"` so an older host reports "requires host protocol >= 1.1"
 // instead of a bare "no runnable executable".
-const HostProtocol = "1.1.0"
+//
+// 1.2.0: authenticated (private) release-fetch — releaseGet sends a bearer
+// token from GH_TOKEN/GITHUB_TOKEN when one is set, so the release assets of a
+// private repo are reachable. Additive for public plugins (no token → the
+// request is byte-for-byte the same); a plugin whose release lives in a
+// private repo declares `min_sf: "1.2.0"` so an older host reports "requires
+// host protocol >= 1.2" instead of failing the download with a bare 404.
+const HostProtocol = "1.2.0"
 
 // Kind distinguishes the two discovery mechanisms. It changes how a plugin is
 // gated: Managed plugins negotiate protocol compatibility from their manifest;

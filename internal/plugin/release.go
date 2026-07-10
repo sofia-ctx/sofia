@@ -138,14 +138,38 @@ func releaseRepo(url string, m Manifest) (owner, repo string, err error) {
 }
 
 // releaseGet performs one GET with the release User-Agent, through
-// releaseHTTPClient (so its redirect policy applies).
+// releaseHTTPClient (so its redirect policy applies). When a GitHub token is
+// in the environment it authenticates the request, which is what makes a
+// private repo's release assets reachable; without one the request is
+// unauthenticated and the public path is unchanged.
 func releaseGet(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", releaseUserAgent)
+	if tok := releaseToken(); tok != "" {
+		// GitHub 302-redirects an authenticated asset download to a signed
+		// CDN URL on a different host; net/http never forwards the
+		// Authorization header across a host change, so the token reaches
+		// only github.com/api.github.com and never the CDN.
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	return releaseHTTPClient.Do(req)
+}
+
+// releaseToken returns a GitHub token for authenticating release-fetch against
+// a private repo, read from the environment only: GH_TOKEN (the gh CLI's
+// variable) takes precedence over GITHUB_TOKEN (the Actions default). Empty
+// means unauthenticated — public repos need no token. sf never stores or
+// writes the token; it is read per request and sent only to GitHub.
+func releaseToken() string {
+	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // latestReleaseTag resolves a repo's latest-release tag via GitHub's REST
