@@ -72,7 +72,14 @@ package plugin
 // the protocol, not against "which sf tag am I running". The N-1 support window
 // (see Compatible) admits plugins declaring a protocol major of HostProtocol's
 // major or one below it.
-const HostProtocol = "1.0.0"
+//
+// 1.1.0: release-fetch (see release.go) — a URL install downloads a prebuilt
+// exec from the repo's GitHub release when the clone ships no binary and the
+// manifest declares a `release:` block. Additive: a 1.0.0 plugin still
+// negotiates fine (same major); a plugin that *needs* release-fetch declares
+// `min_sf: "1.1.0"` so an older host reports "requires host protocol >= 1.1"
+// instead of a bare "no runnable executable".
+const HostProtocol = "1.1.0"
 
 // Kind distinguishes the two discovery mechanisms. It changes how a plugin is
 // gated: Managed plugins negotiate protocol compatibility from their manifest;

@@ -56,10 +56,14 @@ const originFile = ".sf-origin.json"
 
 // origin is the shape written to originFile: enough for a future `sf plugin
 // upgrade` (out of scope here) to re-clone and diff against what's installed.
+// Asset/SHA256 are set only when the install fetched a release binary (see
+// InstallFromGit).
 type origin struct {
 	URL    string `json:"url"`
 	Ref    string `json:"ref,omitempty"`
 	Commit string `json:"commit"`
+	Asset  string `json:"asset,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // InstallFromGit shallow-clones url (optionally pinned to ref — a branch or
@@ -94,7 +98,25 @@ func InstallFromGit(url, ref string) (string, error) {
 		return "", err
 	}
 
-	data, err := json.MarshalIndent(origin{URL: url, Ref: ref, Commit: commit}, "", "  ")
+	// Install discards the manifest it parsed, so re-read it from the
+	// installed copy: a managed plugin that isn't adapter-only, declares a
+	// release block, and shipped no runnable exec gets one fetched from its
+	// GitHub release. Absent the release block (or if the clone already
+	// carries a binary), behavior is unchanged from before this feature.
+	installedDir := filepath.Join(PluginsDir(), installed)
+	var asset, sha string
+	if mdata, rerr := os.ReadFile(filepath.Join(installedDir, manifestFile)); rerr == nil {
+		if m, perr := ParseManifest(mdata); perr == nil && !isAdapterOnly(m) && m.HasRelease() {
+			if _, xerr := managedExec(installedDir, m); xerr != nil { // no binary in the clone → fetch it
+				asset, sha, err = fetchReleaseBinary(url, ref, installedDir, m)
+				if err != nil {
+					return "", err
+				}
+			}
+		}
+	}
+
+	data, err := json.MarshalIndent(origin{URL: url, Ref: ref, Commit: commit, Asset: asset, SHA256: sha}, "", "  ")
 	if err != nil {
 		return "", err
 	}
