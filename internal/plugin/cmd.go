@@ -26,6 +26,10 @@ git-subcommand convention), or a managed directory under
 $XDG_DATA_HOME/sofia/plugins/<name>/ carrying a plugin.yaml manifest. Discovered
 metadata is cached so the command tree is built without forking any plugin.
 
+Installing from a URL whose clone ships no binary and whose manifest declares
+a ` + "`release:`" + ` block fetches a prebuilt executable from the repo's GitHub
+release instead of disabling the plugin — see docs/plugins.md.
+
   sf plugin new <name>           # scaffold a new plugin, ready to install
   sf plugin list                 # what's installed and whether it's enabled
   sf plugin info <name>          # a plugin's manifest and, if disabled, why
@@ -198,7 +202,12 @@ name, then refreshes the cache. Installing over an existing name reinstalls it.
 Given a git URL instead of a directory, install shallow-clones it to a temp
 dir first — the repo's name becomes the plugin name, same as a local install.
 Auth is whatever your git already trusts (ssh-agent, credential helper, …);
-sofia never sees a token.`,
+sofia never sees a token.
+
+If the clone has no runnable executable and its manifest declares a
+` + "`release:`" + ` block, install fetches the matching asset from the repo's
+latest GitHub release (or the release tagged --ref) over https and verifies
+it against the release's checksums.txt before installing it.`,
 		Args:         cliflags.ExactArgsHint(1, "install needs a source directory or git URL; try: sf plugin install ./my-plugin"),
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -226,10 +235,14 @@ sofia never sees a token.`,
 				return err
 			}
 			commit := "unknown"
+			var asset string
 			if o, err := readOrigin(name); err == nil {
-				commit = o.Commit
+				commit, asset = o.Commit, o.Asset
 			}
 			fmt.Fprintf(os.Stdout, "installed %s (from %s @ %.7s)\n", name, src, commit)
+			if asset != "" {
+				fmt.Fprintf(os.Stdout, "  fetched release binary %s\n", asset)
+			}
 			return nil
 		},
 	}

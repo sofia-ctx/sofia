@@ -78,6 +78,56 @@ to date (1a2b3c4)` if the ref's tip hasn't moved). Run it with no name to
 upgrade every git-installed plugin at once; anything installed from a local
 directory is reported and left alone.
 
+### Distributing a binary plugin
+
+The `hello` fixture above ships its executable straight in the repo, which is
+fine for a shell-script plugin but doesn't scale to a compiled one — you don't
+want to commit a binary per platform. Instead, publish it as a **GitHub
+release** and let `sf plugin install` fetch the right one:
+
+1. Build with [goreleaser](https://goreleaser.com), `formats: [binary]` (bare
+   executables, no tar/zip):
+
+   ```yaml
+   # .goreleaser.yml
+   builds:
+     - id: myplugin
+       binary: myplugin
+   archives:
+     - formats: [binary]
+       name_template: "myplugin_{{ .Os }}_{{ .Arch }}"
+   checksum:
+     name_template: checksums.txt
+   ```
+
+   `goreleaser release` then uploads `myplugin_linux_amd64`,
+   `myplugin_darwin_arm64`, … and a `checksums.txt` to the GitHub release.
+
+2. Declare it in `plugin.yaml` — `exec:` names the file the download lands as
+   (not committed to the repo), and `release.asset` is the same name template,
+   with `{os}`/`{arch}` standing in for `runtime.GOOS`/`runtime.GOARCH`:
+
+   ```yaml
+   schema: 1
+   protocol: "1.1.0"
+   min_sf: "1.1.0"
+   exec: myplugin
+   release:
+     asset: "myplugin_{os}_{arch}"
+   ```
+
+3. Consumers just `sf plugin install https://github.com/you/myplugin`. If the
+   clone carries no `myplugin` executable, install fetches the matching asset
+   from the repo's latest release (or the release tagged `--ref`) over https
+   and verifies it against `checksums.txt` before installing — no `gh` CLI, no
+   archive extraction, no signing. `min_sf: "1.1.0"` makes an sf older than
+   this feature report a clean "requires host protocol >= 1.1" instead of
+   silently disabling the plugin for having no binary.
+
+   A repo that already ships its binary in-tree, or a local-directory
+   install (`sf plugin install ./myplugin`), never consults `release:` — it's
+   purely a fallback for the "clone has no exec" case.
+
 ## Adapter (Tier-1): a plugin with no code
 
 Some plugins don't need an executable at all — they just declare a project's
