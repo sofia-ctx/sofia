@@ -11,7 +11,8 @@ three plugin tiers:
   and builds `layers`/`grep`/`refs` from the block.
 - **Tier 2 — subprocess plugin** ([plugins.md](plugins.md)): an executable plus a
   manifest. The host dispatches to it; the plugin does whatever it likes.
-- **Tier 3 — Go SDK**: compiled in. Not yet shipped.
+- **Tier 3 — Go SDK**: compiled in. Shipped — see [docs/sdk.md](sdk.md) /
+  `pkg/`.
 
 Reach for an adapter when everything you want is "run the generic tools, but
 scoped to my project and grouped by my layers". Reach for a subprocess plugin

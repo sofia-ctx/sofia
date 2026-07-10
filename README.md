@@ -600,7 +600,9 @@ Writing a plugin from scratch rather than pulling one from a pack?
 declarative plugin with no code — one that just names your project's layers and
 lets the host synthesize `layers`/`grep`/`refs` grouped by layer — reach for a
 Tier-1 adapter (`sf plugin new <name> --adapter`); see
-[docs/adapters.md](docs/adapters.md).
+[docs/adapters.md](docs/adapters.md). Building a Go tool instead of a plugin?
+The parsers and primitives behind `sf` itself are importable directly — see
+[docs/sdk.md](docs/sdk.md).
 
 ## Layout
 
@@ -615,8 +617,6 @@ sofia/
 │   ├── calllog/                  # JSONL call log (XDG path) + Counter + Fingerprint
 │   ├── cc/                       # `sf cc` — Claude Code session digests
 │   ├── cli/                      # Cobra command tree for the master binary (RootCmd)
-│   ├── cliflags/                 # shared flag helpers (--md/--json, dir completion, arg hints)
-│   ├── codectx/                  # enclosing-function lookup for PHP/TS/Twig/INI
 │   ├── common/changed/           # `sf changed` — classified git diff
 │   ├── common/code/              # `sf code` — structural file summary (Go/PHP/TS/Vue)
 │   ├── common/composer/          # `sf composer` — PHP package tree overview
@@ -627,16 +627,19 @@ sofia/
 │   ├── common/hook/              # `sf hook pre` — PreToolUse guard for the Read channel
 │   ├── common/initcmd/           # `sf init` — per-project onboarding (AGENTS.md, skill, hook, MCP)
 │   ├── common/packagist/         # `sf packagist` — release status + publishing
-│   ├── common/php/               # PhpSymbolReader (VKCOM/php-parser AST)
 │   ├── common/refs/              # `sf refs` — symbol def/use finder with enclosing context
 │   ├── common/vue/               # `sf vue routes` — vue-router route map
 │   ├── common/worktrees/         # `sf worktrees` — cross-project worktree overview
-│   ├── emit/                     # output budget: compact-or-raw (SmallerOf)
 │   ├── envfile/                  # .env load/save/prompt
-│   ├── tokens/                   # fast heuristic LLM token estimate
-│   ├── history/                  # `sf history` — reads and aggregates the call log
+│   └── history/                  # `sf history` — reads and aggregates the call log
+├── pkg/                          # public Go SDK (Tier 3, semver-stable) — see docs/sdk.md
+│   ├── cliflags/                 # shared flag helpers (--md/--json, dir completion, arg hints)
+│   ├── codectx/                  # enclosing-function lookup for PHP/TS/Twig/INI
+│   ├── emit/                     # output budget: compact-or-raw (SmallerOf)
 │   ├── matcher/                  # line-based search (literal + regex)
+│   ├── php/                      # PhpSymbolReader (VKCOM/php-parser AST)
 │   ├── strdist/                  # Levenshtein for typo hints (did you mean)
+│   ├── tokens/                   # fast heuristic LLM token estimate
 │   ├── toon/                     # TOON primitives (Scalar, JoinList)
 │   └── walker/                   # parallel tree walker
 └── bin/                          # gitignored — build artifacts

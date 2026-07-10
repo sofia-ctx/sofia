@@ -2,7 +2,8 @@
 // host-side mechanics that let a third-party executable extend the `sf`
 // command tree without being compiled into the binary. It is Tier 2 of a
 // three-tier design (Tier 1 = declarative YAML adapters, Tier 3 = a first-party
-// Go SDK); the subprocess tier lives here.
+// Go SDK, now living under pkg/ — see docs/sdk.md); the subprocess tier
+// lives here.
 //
 // Tier 1 lives in internal/adapter and is wired in here: a manifest's
 // `adapter:` block (see manifest.go's Adapter.Config) turns into host-
