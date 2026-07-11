@@ -1,8 +1,10 @@
 package launch
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -41,6 +43,7 @@ func NewCommand() *cobra.Command {
 		quiet      bool
 		dir        string
 		dryRun     bool
+		noOverlay  bool
 	)
 
 	cmd := &cobra.Command{
@@ -50,10 +53,20 @@ func NewCommand() *cobra.Command {
 loads that project's own root AGENTS.md/CLAUDE.md the normal way — no
 separate instruction tree, no injected prompt beyond what you opt into.
 
-Project dir resolution: --dir wins outright; else a bare project name
-resolves to $SF_CLAUDE_DIR/<project>; with neither, it's the current
-directory. Set $SF_CLAUDE_PROMPT_FILE to a file of extra system-prompt text
+Project dir resolution for a bare name, in order: --dir wins outright; else a
+saved alias; else an existing $SF_CLAUDE_DIR/<project>; else a dir next to you
+(./<project> or ../<project> — the latter also picks the current dir when it's
+named <project>). If none match, sf searches a couple of levels under your
+projects root ($SF_CLAUDE_DIR) and cwd for a dir of that name: a single hit
+launches, several list for you to pick, and the choice is remembered as an
+alias (~/.config/sofia/projects.yaml) so next time is instant. With no name at
+all, it's the current directory. Set $SF_CLAUDE_PROMPT_FILE to a file of extra
+system-prompt text
 if you want claude to see something beyond AGENTS.md — unset, none is added.
+
+If you keep a personal overlay for the project (see "sf claude overlay"), its
+instructions are injected on top with precedence over the repo's AGENTS.md, and
+its dir is opened for editing; --no-overlay skips that.
 
 A second positional is a fork selector: it redirects the session into an
 isolated git-worktree copy of the project, created on first use via that
@@ -86,6 +99,7 @@ passed through to claude verbatim.`,
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "with --task --out: write only the file, print nothing (exit code only)")
 	cmd.Flags().StringVar(&dir, "dir", "", "project working dir (overrides the positional project + $SF_CLAUDE_DIR)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the resolved claude command without launching")
+	cmd.Flags().BoolVar(&noOverlay, "no-overlay", false, "don't inject the project's personal overlay")
 
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Split positional args at `--`: before = project/fork, after = passthrough.
@@ -135,7 +149,19 @@ passed through to claude verbatim.`,
 
 		target, err := ResolveTarget(dir, project)
 		if err != nil {
-			return err
+			var nf *NotFoundError
+			if dir == "" && errors.As(err, &nf) {
+				picked, found, perr := searchAndPick(nf.Name, os.Stdout)
+				if perr != nil {
+					return perr
+				}
+				if !found {
+					return err // the actionable NotFoundError
+				}
+				target = Target{Name: filepath.Base(picked), Dir: picked}
+			} else {
+				return err
+			}
 		}
 
 		if forkSel != "" {
@@ -149,7 +175,7 @@ passed through to claude verbatim.`,
 		opts := Options{
 			Model: model, Effort: effort, Permission: permission,
 			Task: task, Out: out, JSON: jsonOut, Quiet: quiet,
-			DryRun: dryRun, Extra: extra,
+			DryRun: dryRun, NoOverlay: noOverlay, Extra: extra,
 		}
 
 		code, err := Run(target, opts, os.Stdout)
@@ -162,6 +188,8 @@ passed through to claude verbatim.`,
 		}
 		return nil
 	}
+
+	cmd.AddCommand(newOverlayCommand())
 
 	return cmd
 }
