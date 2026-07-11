@@ -22,6 +22,7 @@ func TestResolveDirExplicitOverride(t *testing.T) {
 }
 
 func TestResolveDirProjectUnderSFClaudeDir(t *testing.T) {
+	isolateAliases(t)
 	root := t.TempDir()
 	proj := filepath.Join(root, "myproj")
 	if err := os.MkdirAll(proj, 0o755); err != nil {
@@ -39,11 +40,63 @@ func TestResolveDirProjectUnderSFClaudeDir(t *testing.T) {
 }
 
 func TestResolveDirProjectWithoutSFClaudeDir(t *testing.T) {
+	isolateAliases(t)
+	// Clean cwd with no ./myproj child and no ../myproj sibling: the
+	// name resolves nowhere, so it errors with the config hint.
+	root := t.TempDir()
+	here := filepath.Join(root, "here")
+	if err := os.MkdirAll(here, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
 	t.Setenv("SF_CLAUDE_DIR", "")
 	if _, err := ResolveDir("", "myproj"); err == nil {
-		t.Fatal("expected error when $SF_CLAUDE_DIR is unset and a project name is given")
+		t.Fatal("expected error when $SF_CLAUDE_DIR is unset and the name resolves nowhere")
 	} else if !strings.Contains(err.Error(), "SF_CLAUDE_DIR") || !strings.Contains(err.Error(), "--dir") {
 		t.Errorf("error should mention $SF_CLAUDE_DIR and --dir: %v", err)
+	}
+}
+
+func TestResolveDirProjectAsChildOfCwd(t *testing.T) {
+	isolateAliases(t)
+	// No $SF_CLAUDE_DIR: a bare name resolves to ./<project> when it exists.
+	root := t.TempDir()
+	proj := filepath.Join(root, "myproj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	t.Setenv("SF_CLAUDE_DIR", "")
+
+	got, err := ResolveDir("", "myproj")
+	if err != nil {
+		t.Fatalf("ResolveDir: %v", err)
+	}
+	if want, _ := filepath.Abs(proj); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveDirProjectAsSiblingOfCwd(t *testing.T) {
+	isolateAliases(t)
+	// No $SF_CLAUDE_DIR: a bare name resolves to ../<project>. Standing in
+	// a workspace dir named <project>, `sf claude <project>` picks the cwd
+	// itself (its own sibling) — the reported `sf claude sofia` case.
+	root := t.TempDir()
+	proj := filepath.Join(root, "myproj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(proj)
+	t.Setenv("SF_CLAUDE_DIR", "")
+
+	got, err := ResolveDir("", "myproj")
+	if err != nil {
+		t.Fatalf("ResolveDir: %v", err)
+	}
+	// ../myproj from inside myproj resolves back to myproj itself.
+	if want, _ := filepath.Abs(proj); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
@@ -86,6 +139,7 @@ func TestResolveTargetNames(t *testing.T) {
 }
 
 func TestBaseArgs(t *testing.T) {
+	isolateOverlays(t)
 	target := Target{Name: "myproj", Dir: "/w/myproj"}
 
 	ia := InteractiveArgs(target, Options{Model: "opus", Permission: "plan", Extra: []string{"--", "-c"}})
@@ -112,6 +166,7 @@ func TestBaseArgs(t *testing.T) {
 }
 
 func TestBaseArgsPromptFile(t *testing.T) {
+	isolateOverlays(t)
 	target := Target{Name: "myproj", Dir: "/w/myproj"}
 	prompt := filepath.Join(t.TempDir(), "prompt.md")
 	if err := os.WriteFile(prompt, []byte("extra rules go here"), 0o644); err != nil {
@@ -127,6 +182,7 @@ func TestBaseArgsPromptFile(t *testing.T) {
 }
 
 func TestBaseArgsPromptFileUnreadable(t *testing.T) {
+	isolateOverlays(t)
 	target := Target{Name: "myproj", Dir: "/w/myproj"}
 	t.Setenv("SF_CLAUDE_PROMPT_FILE", filepath.Join(t.TempDir(), "nope.md"))
 

@@ -1,11 +1,12 @@
 // Package launch implements `sf claude` — a thin, generic launcher that
-// starts the `claude` CLI for a project. Binding to the project's
-// instructions is implicit: claude runs with cwd set to the project dir, so
-// it loads that project's own root AGENTS.md/CLAUDE.md natively — sf doesn't
-// maintain a separate instruction tree or inject one. The launcher's job is
-// just the mechanics: resolve the project dir, assemble claude's argv, and
-// hand off to the process (interactive) or run it headlessly (--task),
-// propagating its exit code.
+// starts the `claude` CLI for a project. Binding to the project's shared
+// instructions is implicit: claude runs with cwd set to the project dir, so it
+// loads that project's own root AGENTS.md/CLAUDE.md natively. On top of that,
+// sf injects an optional personal *overlay* — per-project instructions kept in
+// a private repo (see overlay.go) — via --append-system-prompt, so it takes
+// precedence over the repo's AGENTS.md. The launcher's job is the mechanics:
+// resolve the project dir, assemble claude's argv, and hand off to the process
+// (interactive) or run it headlessly (--task), propagating its exit code.
 package launch
 
 import (
@@ -38,25 +39,68 @@ type Options struct {
 	JSON       bool
 	Quiet      bool
 	DryRun     bool
+	NoOverlay  bool     // skip the personal overlay injection
 	Extra      []string // passthrough args (after `--`)
 }
 
+// NotFoundError is returned when a bare project name matched nothing obvious:
+// no saved alias, no existing $SF_CLAUDE_DIR child, and no ./ or ../ sibling.
+// It's a distinct type so the command layer can offer a deep search before
+// giving up; on its own its message is actionable.
+type NotFoundError struct {
+	Name        string
+	SFClaudeDir string // $SF_CLAUDE_DIR at resolution time ("" if unset)
+}
+
+func (e *NotFoundError) Error() string {
+	tried := make([]string, 0, 3)
+	if e.SFClaudeDir != "" {
+		tried = append(tried, filepath.Join(e.SFClaudeDir, e.Name)+" (under $SF_CLAUDE_DIR)")
+	}
+	tried = append(tried, "./"+e.Name, "../"+e.Name)
+	msg := fmt.Sprintf("project %q not found: no %s", e.Name, strings.Join(tried, ", no "))
+	if e.SFClaudeDir == "" {
+		return msg + "; set $SF_CLAUDE_DIR to your projects root, or pass --dir <path>"
+	}
+	return msg + "; pass --dir <path>"
+}
+
 // ResolveDir resolves the project's working dir. Order: an explicit --dir
-// override; else, given a bare project name, $SF_CLAUDE_DIR/<project> (error
-// if $SF_CLAUDE_DIR is unset — there's no tree to search generically); else,
-// with neither, the current directory. The result is validated to exist and
-// be a directory, and returned absolute.
+// override; else, given a bare project name, in turn — a saved alias (see the
+// alias store), an existing $SF_CLAUDE_DIR/<project>, then the name next to the
+// current directory (a child ./<project> or a sibling ../<project>, the latter
+// also matching the current dir itself when it's named <project>). If none
+// match it returns a *NotFoundError (the command layer may then deep-search).
+// With no name at all, the current directory. The result is validated to exist
+// and be a directory, and returned absolute.
 func ResolveDir(dirFlag, project string) (string, error) {
 	var dir string
 	switch {
 	case dirFlag != "":
 		dir = dirFlag
 	case project != "":
-		root := os.Getenv("SF_CLAUDE_DIR")
-		if root == "" {
-			return "", fmt.Errorf("set $SF_CLAUDE_DIR or pass --dir to launch project %q", project)
+		if d, ok := loadAliases()[project]; ok && dirExists(d) {
+			dir = d
+			break
 		}
-		dir = filepath.Join(root, project)
+		if root := os.Getenv("SF_CLAUDE_DIR"); root != "" {
+			if cand := filepath.Join(root, project); dirExists(cand) {
+				dir = cand
+				break
+			}
+		}
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		switch {
+		case dirExists(filepath.Join(wd, project)):
+			dir = filepath.Join(wd, project)
+		case dirExists(filepath.Join(wd, "..", project)):
+			dir = filepath.Join(wd, "..", project)
+		default:
+			return "", &NotFoundError{Name: project, SFClaudeDir: os.Getenv("SF_CLAUDE_DIR")}
+		}
 	default:
 		wd, err := os.Getwd()
 		if err != nil {
@@ -100,10 +144,28 @@ func systemPromptFromEnv() string {
 }
 
 // baseArgs are the claude flags common to both interactive and task modes.
+// System-prompt text comes from two sources, joined into one
+// --append-system-prompt: the $SF_CLAUDE_PROMPT_FILE global (if any), then the
+// project's personal overlay (if any) — the overlay is added last and carries
+// its own precedence preamble. The overlay's dir is also --add-dir'd so the
+// session can edit it.
 func baseArgs(t Target, o Options) []string {
 	args := []string{"--add-dir", t.Dir, "-n", t.Name}
+
+	prompts := make([]string, 0, 2)
 	if prompt := systemPromptFromEnv(); prompt != "" {
-		args = append(args, "--append-system-prompt", prompt)
+		prompts = append(prompts, prompt)
+	}
+	if !o.NoOverlay {
+		if dir, file, ok := resolveOverlay(t.Name); ok {
+			args = append(args, "--add-dir", dir)
+			if prompt := overlayPrompt(dir, file); prompt != "" {
+				prompts = append(prompts, prompt)
+			}
+		}
+	}
+	if len(prompts) > 0 {
+		args = append(args, "--append-system-prompt", strings.Join(prompts, "\n\n"))
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
@@ -217,6 +279,14 @@ func runTask(bin string, args []string, t Target, out string, quiet bool, stdout
 func printDry(w io.Writer, t Target, args []string) {
 	fmt.Fprintf(w, "cd %s\n", t.Dir)
 	fmt.Fprintf(w, "env: SOFIA_TAG=%s SOFIA_PROJECT_ROOT=%s\n", t.Name, t.Dir)
+	// Surface an applied overlay (the second --add-dir) on its own line.
+	for i, seen := 0, 0; i < len(args)-1; i++ {
+		if args[i] == "--add-dir" {
+			if seen++; seen == 2 {
+				fmt.Fprintf(w, "overlay: %s\n", args[i+1])
+			}
+		}
+	}
 	fmt.Fprint(w, "claude")
 	prompt := ""
 	for i := 0; i < len(args); i++ {
