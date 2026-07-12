@@ -3,7 +3,7 @@
 // markers, file extensions, and named layers with path globs), and the host —
 // not a subprocess — turns those into project-aware `layers`/`grep`/`refs`
 // commands grouped by layer. It is the generalization of the private
-// "crm usages" pattern; a pure-adapter plugin ships no executable at all.
+// "layer-scoped usages" pattern; a pure-adapter plugin ships no executable at all.
 //
 // This package holds the typed schema (Config), its validation, the glob
 // matcher, the root resolver, the layer classifier, and the synthesized cobra
