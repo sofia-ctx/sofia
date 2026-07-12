@@ -9,7 +9,7 @@ import (
 func TestStatus_Drift(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -17,7 +17,7 @@ func TestStatus_Drift(t *testing.T) {
 	}
 
 	// Untouched: status should be all-ok right after install.
-	st, err := Status("xcraft")
+	st, err := Status("acme")
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestStatus_Drift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st, err = Status("xcraft")
+	st, err = Status("acme")
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

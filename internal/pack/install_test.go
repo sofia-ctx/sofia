@@ -37,7 +37,7 @@ func fullPack(t *testing.T, dir, name, agentsBody string) {
 name: `+name+`
 description: test pack
 plugins:
-  - path: plugins/crm
+  - path: plugins/widget
 instructions:
   - src: instructions/AGENTS.md
 claude:
@@ -46,21 +46,21 @@ claude:
 	mustWriteFile(t, filepath.Join(dir, "instructions", "AGENTS.md"), agentsBody, 0o644)
 	mustWriteFile(t, filepath.Join(dir, "skills", "my-skill", "SKILL.md"), "# my skill\n", 0o644)
 	mustWriteFile(t, filepath.Join(dir, "skills", "my-skill", "run.sh"), "#!/bin/sh\necho hi\n", 0o755)
-	mustWriteFile(t, filepath.Join(dir, "plugins", "crm", "plugin.yaml"), "schema: 1\nprotocol: \"1.0.0\"\n", 0o644)
-	mustWriteFile(t, filepath.Join(dir, "plugins", "crm", "crm"), "#!/bin/sh\necho hi\n", 0o755)
+	mustWriteFile(t, filepath.Join(dir, "plugins", "widget", "plugin.yaml"), "schema: 1\nprotocol: \"1.0.0\"\n", 0o644)
+	mustWriteFile(t, filepath.Join(dir, "plugins", "widget", "widget"), "#!/bin/sh\necho hi\n", 0o755)
 }
 
 func TestInstall_ProjectFiles(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	res, err := Install(InstallOptions{Src: src, Project: project})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if res.Name != "xcraft" {
+	if res.Name != "acme" {
 		t.Errorf("name = %q", res.Name)
 	}
 	got, err := os.ReadFile(filepath.Join(project, "AGENTS.md"))
@@ -78,7 +78,7 @@ func TestInstall_ProjectFiles(t *testing.T) {
 func TestInstall_ConflictUnmanaged(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 	mustWriteFile(t, filepath.Join(project, "AGENTS.md"), "hand-written\n", 0o644)
 
@@ -96,7 +96,7 @@ func TestInstall_ConflictUnmanaged(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claudeDir(), "skills", "my-skill", "SKILL.md")); err == nil {
 		t.Error("claude skill was written despite a project-file conflict")
 	}
-	if _, ok := plugin.Find(plugin.Load(), "crm"); ok {
+	if _, ok := plugin.Find(plugin.Load(), "widget"); ok {
 		t.Error("plugin was installed despite a project-file conflict")
 	}
 }
@@ -104,7 +104,7 @@ func TestInstall_ConflictUnmanaged(t *testing.T) {
 func TestInstall_ConflictDrifted(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -124,7 +124,7 @@ func TestInstall_ConflictDrifted(t *testing.T) {
 func TestInstall_ForceOverwrites(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -144,7 +144,7 @@ func TestInstall_ForceOverwrites(t *testing.T) {
 func TestInstall_Idempotent(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -160,7 +160,7 @@ func TestInstall_Idempotent(t *testing.T) {
 func TestInstall_Claude(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -182,18 +182,18 @@ func TestInstall_Claude(t *testing.T) {
 func TestInstall_Plugins(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	res, err := Install(InstallOptions{Src: src, Project: project})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if len(res.Plugins) != 1 || res.Plugins[0] != "crm" {
-		t.Errorf("Plugins = %v, want [crm]", res.Plugins)
+	if len(res.Plugins) != 1 || res.Plugins[0] != "widget" {
+		t.Errorf("Plugins = %v, want [widget]", res.Plugins)
 	}
-	d, ok := plugin.Find(plugin.Load(), "crm")
+	d, ok := plugin.Find(plugin.Load(), "widget")
 	if !ok || !d.Enabled {
-		t.Errorf("plugin crm not visible/enabled after Install: %+v", d)
+		t.Errorf("plugin widget not visible/enabled after Install: %+v", d)
 	}
 }

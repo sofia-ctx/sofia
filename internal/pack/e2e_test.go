@@ -33,7 +33,7 @@ func TestE2E_PackLifecycle(t *testing.T) {
 	if res.exit != 0 {
 		t.Fatalf("install: exit=%d stderr=%q stdout=%q", res.exit, res.stderr, res.stdout)
 	}
-	if !strings.Contains(res.stdout, "installed xcraft") {
+	if !strings.Contains(res.stdout, "installed acme") {
 		t.Errorf("install output unexpected:\n%s", res.stdout)
 	}
 	if _, err := os.Stat(filepath.Join(project, "AGENTS.md")); err != nil {
@@ -44,11 +44,11 @@ func TestE2E_PackLifecycle(t *testing.T) {
 	if res.exit != 0 {
 		t.Fatalf("plugin list: exit=%d stderr=%q", res.exit, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "crm") || !strings.Contains(res.stdout, "enabled") {
+	if !strings.Contains(res.stdout, "widget") || !strings.Contains(res.stdout, "enabled") {
 		t.Errorf("`sf plugin list` did not show the pack's plugin:\n%s", res.stdout)
 	}
 
-	res = runSF(t, bin, dataDir, claudeDir, logDir, "pack", "status", "xcraft")
+	res = runSF(t, bin, dataDir, claudeDir, logDir, "pack", "status", "acme")
 	if res.exit != 0 {
 		t.Fatalf("status: exit=%d stderr=%q", res.exit, res.stderr)
 	}
@@ -56,7 +56,7 @@ func TestE2E_PackLifecycle(t *testing.T) {
 		t.Errorf("status did not report ok:\n%s", res.stdout)
 	}
 
-	res = runSF(t, bin, dataDir, claudeDir, logDir, "pack", "uninstall", "xcraft", "--project", project)
+	res = runSF(t, bin, dataDir, claudeDir, logDir, "pack", "uninstall", "acme", "--project", project)
 	if res.exit != 0 {
 		t.Fatalf("uninstall: exit=%d stderr=%q", res.exit, res.stderr)
 	}
@@ -72,16 +72,16 @@ func gitPackRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	writeFixture(t, filepath.Join(dir, "pack.yaml"), `schema: 1
-name: xcraft
+name: acme
 description: e2e test pack
 plugins:
-  - path: plugins/crm
+  - path: plugins/widget
 instructions:
   - src: instructions/AGENTS.md
 `, 0o644)
 	writeFixture(t, filepath.Join(dir, "instructions", "AGENTS.md"), "# Agents\n", 0o644)
-	writeFixture(t, filepath.Join(dir, "plugins", "crm", "plugin.yaml"), "schema: 1\nprotocol: \"1.0.0\"\n", 0o644)
-	writeFixture(t, filepath.Join(dir, "plugins", "crm", "crm"), "#!/bin/sh\necho hi\n", 0o755)
+	writeFixture(t, filepath.Join(dir, "plugins", "widget", "plugin.yaml"), "schema: 1\nprotocol: \"1.0.0\"\n", 0o644)
+	writeFixture(t, filepath.Join(dir, "plugins", "widget", "widget"), "#!/bin/sh\necho hi\n", 0o755)
 
 	for _, args := range [][]string{
 		{"init", "--quiet"},
