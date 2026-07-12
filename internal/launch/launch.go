@@ -148,7 +148,8 @@ func systemPromptFromEnv() string {
 // --append-system-prompt: the $SF_CLAUDE_PROMPT_FILE global (if any), then the
 // project's personal overlay (if any) — the overlay is added last and carries
 // its own precedence preamble. The overlay's dir is also --add-dir'd so the
-// session can edit it.
+// session can edit it, and when the overlay is a Claude Code plugin it's loaded
+// with --plugin-dir so its slash-commands are available for the session.
 func baseArgs(t Target, o Options) []string {
 	args := []string{"--add-dir", t.Dir, "-n", t.Name}
 
@@ -157,10 +158,15 @@ func baseArgs(t Target, o Options) []string {
 		prompts = append(prompts, prompt)
 	}
 	if !o.NoOverlay {
-		if dir, file, ok := resolveOverlay(t.Name); ok {
-			args = append(args, "--add-dir", dir)
-			if prompt := overlayPrompt(dir, file); prompt != "" {
-				prompts = append(prompts, prompt)
+		if ov, ok := resolveOverlay(t.Name); ok {
+			args = append(args, "--add-dir", ov.dir)
+			if ov.plugin {
+				args = append(args, "--plugin-dir", ov.dir)
+			}
+			if ov.agents != "" {
+				if prompt := overlayPrompt(ov.dir, ov.agents); prompt != "" {
+					prompts = append(prompts, prompt)
+				}
 			}
 		}
 	}

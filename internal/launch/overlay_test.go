@@ -30,31 +30,46 @@ func writeOverlay(t *testing.T, root, repo, tag, body string) string {
 	return dir
 }
 
+// writePluginManifest turns an existing tag dir into a Claude Code plugin.
+func writePluginManifest(t *testing.T, dir string) {
+	t.Helper()
+	mf := filepath.Join(dir, overlayPluginManifest)
+	if err := os.MkdirAll(filepath.Dir(mf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mf, []byte(`{"name":"ovl","version":"0.0.1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolveOverlayFound(t *testing.T) {
 	root := isolateOverlays(t)
-	want := writeOverlay(t, root, "myrepo", "packages", "rules")
+	want := writeOverlay(t, root, "myrepo", "projectA", "rules")
 
-	dir, file, ok := resolveOverlay("packages")
+	m, ok := resolveOverlay("projectA")
 	if !ok {
-		t.Fatal("expected an overlay match for packages")
+		t.Fatal("expected an overlay match for projectA")
 	}
-	if dir != want {
-		t.Errorf("dir = %q, want %q", dir, want)
+	if m.dir != want {
+		t.Errorf("dir = %q, want %q", m.dir, want)
 	}
-	if file != filepath.Join(want, overlayFile) {
-		t.Errorf("file = %q, want %q", file, filepath.Join(want, overlayFile))
+	if m.agents != filepath.Join(want, overlayFile) {
+		t.Errorf("agents = %q, want %q", m.agents, filepath.Join(want, overlayFile))
+	}
+	if m.plugin {
+		t.Error("an AGENTS.md-only overlay is not a plugin")
 	}
 }
 
 func TestResolveOverlayMissing(t *testing.T) {
 	root := isolateOverlays(t)
-	writeOverlay(t, root, "myrepo", "packages", "rules")
+	writeOverlay(t, root, "myrepo", "projectA", "rules")
 
 	// A repo without a matching tag, and a plain name, both resolve nowhere.
-	if _, _, ok := resolveOverlay("other"); ok {
+	if _, ok := resolveOverlay("other"); ok {
 		t.Error("unrelated tag should not match")
 	}
-	if _, _, ok := resolveOverlay(""); ok {
+	if _, ok := resolveOverlay(""); ok {
 		t.Error("empty name should not match")
 	}
 }
@@ -63,12 +78,58 @@ func TestResolveOverlayDeterministicOnCollision(t *testing.T) {
 	root := isolateOverlays(t)
 	// Two repos define the same tag; the alphabetically-first repo wins,
 	// deterministically (os.ReadDir sorts).
-	first := writeOverlay(t, root, "aaa", "packages", "from-aaa")
-	writeOverlay(t, root, "bbb", "packages", "from-bbb")
+	first := writeOverlay(t, root, "aaa", "projectA", "from-aaa")
+	writeOverlay(t, root, "bbb", "projectA", "from-bbb")
 
-	dir, _, ok := resolveOverlay("packages")
-	if !ok || dir != first {
-		t.Errorf("collision should pick %q, got %q (ok=%v)", first, dir, ok)
+	m, ok := resolveOverlay("projectA")
+	if !ok || m.dir != first {
+		t.Errorf("collision should pick %q, got %q (ok=%v)", first, m.dir, ok)
+	}
+}
+
+func TestResolveOverlayPluginOnly(t *testing.T) {
+	root := isolateOverlays(t)
+	// A tag dir with a plugin manifest but no AGENTS.md is still an overlay.
+	dir := filepath.Join(root, "myrepo", "projectA")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePluginManifest(t, dir)
+
+	m, ok := resolveOverlay("projectA")
+	if !ok {
+		t.Fatal("a plugin-only tag dir should resolve as an overlay")
+	}
+	if !m.plugin {
+		t.Error("plugin flag should be set")
+	}
+	if m.agents != "" {
+		t.Errorf("no AGENTS.md, so agents should be empty, got %q", m.agents)
+	}
+}
+
+func TestBaseArgsOverlayPlugin(t *testing.T) {
+	root := isolateOverlays(t)
+	// AGENTS.md + plugin manifest in the same tag dir: prompt AND commands.
+	dir := writeOverlay(t, root, "myrepo", "myproj", "personal rules")
+	writePluginManifest(t, dir)
+	target := Target{Name: "myproj", Dir: "/w/myproj"}
+
+	js := strings.Join(InteractiveArgs(target, Options{}), " ")
+	for _, want := range []string{
+		"--add-dir " + dir,
+		"--plugin-dir " + dir,
+		"--append-system-prompt",
+		"personal rules",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("args missing %q in: %s", want, js)
+		}
+	}
+
+	// --no-overlay drops the plugin too.
+	if off := strings.Join(InteractiveArgs(target, Options{NoOverlay: true}), " "); strings.Contains(off, "--plugin-dir") {
+		t.Errorf("--no-overlay should not load the plugin: %s", off)
 	}
 }
 
@@ -148,15 +209,15 @@ func TestOverlayRepoName(t *testing.T) {
 
 func TestOverlayTags(t *testing.T) {
 	root := isolateOverlays(t)
-	writeOverlay(t, root, "myrepo", "packages", "x")
-	writeOverlay(t, root, "myrepo", "xcraft", "y")
+	writeOverlay(t, root, "myrepo", "projectA", "x")
+	writeOverlay(t, root, "myrepo", "projectB", "y")
 	// A dir without AGENTS.md is not a tag.
 	if err := os.MkdirAll(filepath.Join(root, "myrepo", "notes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	got := overlayTags(filepath.Join(root, "myrepo"))
-	want := []string{"packages", "xcraft"}
+	want := []string{"projectA", "projectB"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("overlayTags = %v, want %v", got, want)
 	}
