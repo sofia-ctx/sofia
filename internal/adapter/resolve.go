@@ -12,7 +12,7 @@ import (
 //
 //  1. $<RootKey> — when the config names a root key and that environment
 //     variable is set and points at an existing directory, it wins outright.
-//     This is the explicit escape hatch (e.g. CRM_ROOT) for working outside the
+//     This is the explicit escape hatch (e.g. APP_ROOT) for working outside the
 //     tree, or from a checkout whose markers live elsewhere.
 //  2. a walk up from startDir to the nearest ancestor containing any RootMarker
 //     — the ordinary case, modelled on phpcode.loadComposerPSR4 and
