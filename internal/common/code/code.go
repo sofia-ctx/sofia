@@ -3,7 +3,7 @@
 // to see its shape/API (where read tokens go in practice).
 //
 // This package is a thin ROUTER: it dispatches each file by extension to a
-// per-language backend library (gocode, phpcode, tscode), runs multiple files
+// per-language backend library (gocode, phpcode, pycode, tscode), runs multiple files
 // in parallel, and aggregates the results. Each backend is small and tested in
 // isolation. The router owns the cross-cutting concerns: the compact-or-raw
 // token-saver invariant (internal/emit — emit the summary only when it is
