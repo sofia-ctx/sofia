@@ -27,6 +27,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/internal/common/code/gocode"
 	"github.com/sofia-ctx/sofia/internal/common/code/phpcode"
+	"github.com/sofia-ctx/sofia/internal/common/code/pycode"
 	"github.com/sofia-ctx/sofia/internal/common/code/tscode"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/internal/dedup"
@@ -62,6 +63,8 @@ func backendFor(path string) (backend, bool) {
 		return backend{summarize: gocode.Summarize, slice: gocode.Slice}, true
 	case strings.HasSuffix(path, ".php"):
 		return backend{summarize: phpcode.Summarize, slice: phpcode.Slice}, true
+	case strings.HasSuffix(path, ".py"):
+		return backend{summarize: pycode.Summarize, slice: pycode.Slice}, true
 	case hasSuffixAny(path, ".ts", ".tsx", ".vue"):
 		return backend{summarize: tscode.Summarize}, true
 	}
@@ -288,7 +291,7 @@ func validate(opts Options) error {
 func checkExts(inputs []string) error {
 	for _, p := range inputs {
 		if !supportedExt(p) {
-			return fmt.Errorf("sf code supports Go (.go), PHP (.php), TS/Vue (.ts/.tsx/.vue); got %s", p)
+			return fmt.Errorf("sf code supports Go (.go), PHP (.php), Python (.py), TS/Vue (.ts/.tsx/.vue); got %s", p)
 		}
 	}
 	return nil
@@ -316,7 +319,7 @@ const maxExpandedFiles = 250
 // supportedExts is the extension allow-list directory/glob expansion filters
 // to — the same languages backendFor dispatches (kept as a map here so
 // walker.Options.Exts can use it directly).
-var supportedExts = map[string]bool{".go": true, ".php": true, ".ts": true, ".tsx": true, ".vue": true}
+var supportedExts = map[string]bool{".go": true, ".php": true, ".py": true, ".ts": true, ".tsx": true, ".vue": true}
 
 // expandInputs turns each input into one or more supported-extension files:
 //   - a directory expands recursively (internal/walker, same default ignores
@@ -608,7 +611,7 @@ func maxParallel() int {
 }
 
 func supportedExt(path string) bool {
-	return hasSuffixAny(path, ".go", ".php", ".ts", ".tsx", ".vue")
+	return hasSuffixAny(path, ".go", ".php", ".py", ".ts", ".tsx", ".vue")
 }
 
 func hasSuffixAny(path string, exts ...string) bool {
