@@ -29,7 +29,7 @@ func TestExportCapturesAgentsAndPlugins(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
 	mustWriteFile(t, filepath.Join(project, "AGENTS.md"), "# Agents\n", 0o644)
-	installPluginFixture(t, "crm")
+	installPluginFixture(t, "widget")
 
 	out := t.TempDir()
 	res, err := Export(ExportOptions{Name: "demo", Project: project, Out: out})
@@ -39,8 +39,8 @@ func TestExportCapturesAgentsAndPlugins(t *testing.T) {
 	if !res.HasAgents {
 		t.Error("HasAgents = false, want true")
 	}
-	if len(res.Plugins) != 1 || res.Plugins[0] != "crm" {
-		t.Errorf("Plugins = %v, want [crm]", res.Plugins)
+	if len(res.Plugins) != 1 || res.Plugins[0] != "widget" {
+		t.Errorf("Plugins = %v, want [widget]", res.Plugins)
 	}
 
 	data, err := os.ReadFile(filepath.Join(out, "demo", "pack.yaml"))
@@ -57,14 +57,14 @@ func TestExportCapturesAgentsAndPlugins(t *testing.T) {
 	if len(m.Instructions) != 1 || m.Instructions[0].Src != filepath.FromSlash("instructions/AGENTS.md") || m.Instructions[0].Dest != "AGENTS.md" {
 		t.Errorf("instructions = %+v", m.Instructions)
 	}
-	if len(m.Plugins) != 1 || m.Plugins[0].Path != filepath.FromSlash("plugins/crm") {
+	if len(m.Plugins) != 1 || m.Plugins[0].Path != filepath.FromSlash("plugins/widget") {
 		t.Errorf("plugins = %+v", m.Plugins)
 	}
 
-	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "crm", "plugin.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "widget", "plugin.yaml")); err != nil {
 		t.Errorf("plugin.yaml not copied: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "crm", originFile)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "widget", originFile)); !os.IsNotExist(err) {
 		t.Errorf(".sf-origin.json should be absent, stat err = %v", err)
 	}
 }
@@ -77,14 +77,14 @@ func TestExportRoundTrips(t *testing.T) {
 	isolate(t)
 	project := t.TempDir()
 	mustWriteFile(t, filepath.Join(project, "AGENTS.md"), "# Agents\n", 0o644)
-	installPluginFixture(t, "crm")
+	installPluginFixture(t, "widget")
 
 	out := t.TempDir()
 	if _, err := Export(ExportOptions{Name: "demo", Project: project, Out: out}); err != nil {
 		t.Fatalf("Export: %v", err)
 	}
 
-	if err := plugin.Uninstall("crm"); err != nil {
+	if err := plugin.Uninstall("widget"); err != nil {
 		t.Fatalf("plugin.Uninstall: %v", err)
 	}
 	if _, err := plugin.Update(); err != nil {
@@ -102,8 +102,8 @@ func TestExportRoundTrips(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(target, "AGENTS.md")); err != nil || string(got) != "# Agents\n" {
 		t.Errorf("AGENTS.md = %q, %v", got, err)
 	}
-	if d, ok := plugin.Find(plugin.Load(), "crm"); !ok || !d.Enabled {
-		t.Errorf("plugin crm not reinstalled/enabled: %+v", d)
+	if d, ok := plugin.Find(plugin.Load(), "widget"); !ok || !d.Enabled {
+		t.Errorf("plugin widget not reinstalled/enabled: %+v", d)
 	}
 }
 
@@ -163,9 +163,9 @@ func TestExportStripsOrigin(t *testing.T) {
 	isolate(t)
 
 	// The repo's own directory name becomes the plugin name.
-	repo := filepath.Join(t.TempDir(), "crm")
+	repo := filepath.Join(t.TempDir(), "widget")
 	mustWriteFile(t, filepath.Join(repo, "plugin.yaml"), "schema: 1\nprotocol: \"1.0.0\"\n", 0o644)
-	mustWriteFile(t, filepath.Join(repo, "crm"), "#!/bin/sh\necho hi\n", 0o755)
+	mustWriteFile(t, filepath.Join(repo, "widget"), "#!/bin/sh\necho hi\n", 0o755)
 	for _, args := range [][]string{
 		{"init", "--quiet"},
 		{"config", "user.email", "test@example.com"},
@@ -185,7 +185,7 @@ func TestExportStripsOrigin(t *testing.T) {
 	if _, err := plugin.Update(); err != nil {
 		t.Fatalf("plugin.Update: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(plugin.PluginsDir(), "crm", originFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(plugin.PluginsDir(), "widget", originFile)); err != nil {
 		t.Fatalf("origin marker missing before export (test setup broken): %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestExportStripsOrigin(t *testing.T) {
 	if _, err := Export(ExportOptions{Name: "demo", Project: project, Out: out}); err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "crm", originFile)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(out, "demo", "plugins", "widget", originFile)); !os.IsNotExist(err) {
 		t.Errorf("origin marker should be stripped from the exported copy, stat err = %v", err)
 	}
 }

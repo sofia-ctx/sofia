@@ -11,7 +11,7 @@ import (
 func TestUninstall_RemovesCleanKeepsModified(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	project := t.TempDir()
 
 	if _, err := Install(InstallOptions{Src: src, Project: project}); err != nil {
@@ -19,7 +19,7 @@ func TestUninstall_RemovesCleanKeepsModified(t *testing.T) {
 	}
 	mustWriteFile(t, filepath.Join(project, "AGENTS.md"), "edited by hand\n", 0o644)
 
-	res, err := Uninstall("xcraft", project)
+	res, err := Uninstall("acme", project)
 	if err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
@@ -42,13 +42,13 @@ func TestUninstall_RemovesCleanKeepsModified(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claudeDir(), "skills", "my-skill", "SKILL.md")); err == nil {
 		t.Error("untouched claude skill file should have been removed")
 	}
-	if _, ok := plugin.Find(plugin.Load(), "crm"); ok {
+	if _, ok := plugin.Find(plugin.Load(), "widget"); ok {
 		t.Error("plugin should have been uninstalled")
 	}
-	if _, err := os.Stat(canonDir("xcraft")); err == nil {
+	if _, err := os.Stat(canonDir("acme")); err == nil {
 		t.Error("canon copy should have been removed")
 	}
-	if _, found, err := loadReceipt("xcraft"); err != nil || found {
+	if _, found, err := loadReceipt("acme"); err != nil || found {
 		t.Errorf("receipt should be gone: found=%v err=%v", found, err)
 	}
 }
@@ -56,7 +56,7 @@ func TestUninstall_RemovesCleanKeepsModified(t *testing.T) {
 func TestUninstall_SecondProjectKeepsGlobals(t *testing.T) {
 	isolate(t)
 	src := t.TempDir()
-	fullPack(t, src, "xcraft", "# Agents\n")
+	fullPack(t, src, "acme", "# Agents\n")
 	projectA := t.TempDir()
 	projectB := t.TempDir()
 
@@ -67,7 +67,7 @@ func TestUninstall_SecondProjectKeepsGlobals(t *testing.T) {
 		t.Fatalf("Install B: %v", err)
 	}
 
-	res, err := Uninstall("xcraft", projectA)
+	res, err := Uninstall("acme", projectA)
 	if err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
@@ -83,11 +83,11 @@ func TestUninstall_SecondProjectKeepsGlobals(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claudeDir(), "skills", "my-skill", "SKILL.md")); err != nil {
 		t.Error("claude files must survive while project B still references the pack")
 	}
-	if _, ok := plugin.Find(plugin.Load(), "crm"); !ok {
+	if _, ok := plugin.Find(plugin.Load(), "widget"); !ok {
 		t.Error("plugin must survive while project B still references the pack")
 	}
 
-	r, found, err := loadReceipt("xcraft")
+	r, found, err := loadReceipt("acme")
 	if err != nil || !found {
 		t.Fatalf("receipt should still exist: found=%v err=%v", found, err)
 	}

@@ -4,10 +4,10 @@ import "testing"
 
 func TestParseManifest_Valid(t *testing.T) {
 	data := []byte(`schema: 1
-name: xcraft
-description: CRM agent pack
+name: acme
+description: Acme agent pack
 plugins:
-  - path: plugins/crm
+  - path: plugins/widget
   - git: git@github.com:o/r.git
     ref: v2
 instructions:
@@ -27,7 +27,7 @@ templates:
 	if err := m.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if m.Name != "xcraft" || m.Schema != 1 {
+	if m.Name != "acme" || m.Schema != 1 {
 		t.Errorf("m = %+v", m)
 	}
 	if len(m.Plugins) != 2 || m.Plugins[0].Path == "" || m.Plugins[1].Git == "" {
@@ -43,38 +43,38 @@ func TestParseManifest_Rejects(t *testing.T) {
 		"no name": `schema: 1
 `,
 		"unsupported schema": `schema: 2
-name: xcraft
+name: acme
 `,
 		"plugin ref with both path and git": `schema: 1
-name: xcraft
+name: acme
 plugins:
-  - path: plugins/crm
+  - path: plugins/widget
     git: git@github.com:o/r.git
 `,
 		"plugin ref with neither path nor git": `schema: 1
-name: xcraft
+name: acme
 plugins:
   - ref: v2
 `,
 		"ref without git": `schema: 1
-name: xcraft
+name: acme
 plugins:
-  - path: plugins/crm
+  - path: plugins/widget
     ref: v2
 `,
 		"absolute src": `schema: 1
-name: xcraft
+name: acme
 instructions:
   - src: /etc/passwd
 `,
 		"dest escapes with ..": `schema: 1
-name: xcraft
+name: acme
 instructions:
   - src: instructions/AGENTS.md
     dest: ../../etc/passwd
 `,
 		"invalid name": `schema: 1
-name: Xcraft
+name: Acme
 `,
 	}
 	for label, doc := range cases {
