@@ -13,7 +13,7 @@ the context window gets re-read from cache on every following turn.
 
 | Need | Instead of | Call |
 |---|---|---|
-| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/TS/Vue; ~6–23×; small files auto-return raw) |
+| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/Python/TS/Vue; ~6–23×; small files auto-return raw) |
 | Map a whole package/dir | reading files one by one | `sf code <dir> --brief` (recursive, one call) |
 | Only the public surface | — | `sf code <file> --exported`; PHP with traits/parents — `--api` |
 | One function/method/type's body | re-reading the whole file | `sf code <file> <Sym1> [Sym2 …]` (one call, several bodies) |

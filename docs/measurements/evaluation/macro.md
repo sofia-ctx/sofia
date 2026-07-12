@@ -1,20 +1,29 @@
 # Macro A/B: does the `sf` kit pay off on a *real* feature?
 
-> Status: **partial, but honest.** The full matrix was designed, but the
-> opus configs (A, B) ran into **Anthropic's session limit** — exactly the
-> failure mode the harness is built to catch (via `limited()`) and resume
-> after a reset. So: **config C (sonnet/sonnet) is a complete n=3** (the
-> backbone of this write-up), **config A (opus) is an n=1 probe**,
-> **config B and the remaining repeats were cut short**, pending resume.
-> Numbers come from the harness's own run log (plus the raw plan capture for
-> the probe run).
+The small-task test in [`micro.md`](micro.md) found that `sf` doesn't spend
+fewer tokens — it spends more, and only comes out ahead on navigation-heavy work
+by shifting volume into a cheaper token type. This is the harder follow-up: can
+an AI agent, with and without `sf`, **build a real, sizable feature** end to end?
+We took an actual merged pull request from the target app's history — live boards
+over a Mercure pub/sub channel, 35 files, +986/−120 — rewound the code to just
+before it landed, and had the agent rebuild it under a realistic
+**plan-then-implement** flow. No hand-graded rubric this time: the feature's own
+tests plus the project's full CI gate (style linter, strict static analysis, the
+test suite) decide pass/fail. We measured the real API bill for the `sf` arm
+against a plain-tools arm, per phase and across models.
 
-A sequel to the micro A/B (`micro.md`). There, the finding was blunt and
-against the pitch: on small, synthetic tasks, `sf` **doesn't reduce
-tokens** (+35…91% volume), and the dollar win only shows up on navigation,
-purely from shifting volume into cheap `cache_read`. This is a check on a
-**real, substantial feature**, under a realistic **"plan (opus, ultrathink)
-→ implement (auto)"** flow, with objective, functional judging.
+**The honest status:** the full model matrix was designed but not finished — the
+opus runs hit Anthropic's session limit partway (exactly the failure the harness
+is built to catch and resume after a reset). So one configuration — sonnet, three
+repeats — is a complete result and carries this writeup; the opus numbers are a
+single probe run, directional rather than proof.
+
+**The headline:** on the everyday model (sonnet), `sf` is a *wash* on this
+feature — planning is actually slightly dearer with it, and the small net gain
+comes from the implementation phase, not the navigation work `sf` targets. It
+pays off only on the biggest model (opus), where the plan phase is −39%. And the
+model you pick matters far more than the tool: the same plan costs ~5× more on
+opus than on sonnet, while `sf`-vs-plain moves it by at most ~18%.
 
 ## What's new versus the micro test
 

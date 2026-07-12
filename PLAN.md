@@ -5,16 +5,20 @@ This document describes the current state. For short how-tos, read
 
 ## Purpose
 
-SF (Sophia Foundation / Source Fabric) is a single Go toolkit for local
-scanning of an application's layers and assembling **compact context for an
-LLM**. Two roles:
+`sf` gives an AI coding agent compact, structured context about a codebase — a
+file's structure, a symbol's uses, a classified git diff — instead of raw file
+dumps, so the agent gets what it needs for fewer tokens. It's a single Go
+toolkit that scans an application's layers locally and hands the model a
+narrow, token-cheap slice. Two roles:
 
 - **Agentic Tools** — the model calls a binary to take an action.
 - **Context Providers** — a binary reads a project's code/git history and
-  returns a narrow, token-cheap slice of it (TOON by default).
+  returns a narrow slice of it, by default as **TOON** (Token-Oriented Object
+  Notation, a compact JSON-like format that's far cheaper in tokens than raw
+  JSON or a full file).
 
-The core principle: everything a tool hands to an LLM must be cheap in
-tokens and unambiguous in structure.
+The core principle: everything a tool hands to an LLM must be cheap in tokens
+and unambiguous in structure.
 
 ## Directory layout
 
@@ -34,6 +38,7 @@ sofia/
 │   ├── common/code/              `sf code` — router: dispatch by extension + multi-file
 │   │   ├── gocode/               Go backend (go/parser): summary + slice
 │   │   ├── phpcode/               PHP backend (wraps common/php): summary + slice
+│   │   ├── pycode/                Python backend (indentation heuristics): summary + slice
 │   │   └── tscode/               TS/Vue backend (regex): summary + type members + SFC
 │   ├── common/composer/          `sf composer` — PHP package tree overview (ls/show/check)
 │   ├── common/doctor/            `sf doctor` — installation health (staleness of bin/sf vs git)
@@ -101,9 +106,11 @@ per-language backends `{gocode, phpcode, tscode}`, plus a parallel run across
 multiple files. A file's structure **without bodies**: Go via `go/parser`
 (package, imports, types with fields/tags, signatures); PHP via a
 `common/php` wrapper (namespace, attributes, constructor deps, methods);
-TS/Vue via a regex extractor (type members, SFC `defineProps`/stores/API
-calls). The second positional argument is a **single-symbol slice**
-(Go/PHP); `--exported` narrows to the public API; `--api` (PHP) computes the
+Python via indentation heuristics (classes+methods, module functions,
+assignments); TS/Vue via a regex extractor (type members, SFC
+`defineProps`/stores/API calls). The second positional argument is a
+**single-symbol slice** (Go/PHP/Python); `--exported` narrows to the public
+API; `--api` (PHP) computes the
 effective public surface across traits/inheritance. Invariant:
 **compact-or-raw** — unparseable, or a summary that isn't shorter, returns
 the full file rather than erroring.

@@ -1,6 +1,20 @@
 # A/B: does `sf` earn its tokens? A live measurement
 
-A whole-task A/B: two agents in fresh, isolated sessions with no shared
+`sf` gives an AI coding agent compact, structured views of a codebase — a
+file's shape, where a symbol is used — instead of raw file dumps, to spend fewer
+tokens on the same work. Does it actually pay off? We gave the *same* AI the
+*same* three real coding jobs **twice** — once with `sf`, once with only ordinary
+tools (open a file, search, grep) — and compared the real API bill. The jobs:
+work out how one database entity is shaped and used across the code (a many-file
+navigation task), add a field to another entity (a small edit), and add one
+method to a small single-file class. **The short answer:** `sf` doesn't spend
+*fewer* tokens — it spends *more*, but shifts them into a cheaper token *type*,
+which nets out ahead on the navigation job and behind on the single-file edits.
+So the right policy is a hybrid — `sf` for many-file work, plain reads for small
+files — not "route everything through `sf`."
+
+The rest of this page is the measurement in full. A whole-task A/B: two agents
+in fresh, isolated sessions with no shared
 memory solve the same problems on a real, production Symfony + Doctrine
 codebase (a mature, vertical-slice application with a `src/<Context>/`
 layout); one arm is equipped with `sf` (its agent instructions + the
