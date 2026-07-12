@@ -1,13 +1,24 @@
 # sofia
 
-**SF (Sophia Foundation / Source Fabric)** — a Go toolkit of CLI tools and
-AI-agent instructions for working on software projects.
+`sf` is a command-line toolkit for AI coding agents. Instead of raw file
+dumps, it hands the agent compact, structured views of a codebase — a map of
+one file's types and signatures, every place a symbol is used, a classified
+git diff — so the agent spends fewer tokens (less money, less rate limit) to
+get the same context. It ships as a set of small Go CLI tools plus the agent
+instructions (a skill, a hook, an `AGENTS.md` block) that tell a model when to
+reach for them.
 
-- **Agentic Tools** — Go binaries the model calls to take actions.
-- **Context Providers** — Go binaries that collect compact context from
-  code/git and hand it to the model as TOON.
+The tools fall in two groups, both aimed at keeping what reaches the model
+cheap and unambiguous:
 
-Architecture and design rationale — [PLAN.md](./PLAN.md).
+- **Tools the agent runs to act** — search, inspect a file's structure,
+  classify a diff, check CI, digest a PR.
+- **Context providers** — collect just the relevant slice of code or git state
+  and return it as **TOON** (Token-Oriented Object Notation: a compact,
+  JSON-like format that costs far fewer tokens than raw JSON or a full file).
+
+SF stands for Sophia Foundation / Source Fabric. Architecture and design
+rationale — [PLAN.md](./PLAN.md).
 
 ## Requirements
 
@@ -99,23 +110,24 @@ negative `--max` to remove the cap entirely.
 Measured on this repo's own tree
 ([docs/measurements/tools/refs.md](docs/measurements/tools/refs.md)).
 
-### `sf code` — structural summary of a source file (Go + PHP + TS/Vue)
+### `sf code` — structural summary of a source file (Go + PHP + Python + TS/Vue)
 
 A compact structural summary of a file **without function bodies**: for Go —
 package, imports, types (struct fields + tags, interface methods), function
 and method signatures, const/var; for PHP — namespace, class/interface/trait/
 enum, extends/implements, attributes (`#[ORM\…]`/`#[Route]`/`#[IsGranted]`),
-constructor dependencies, properties, method signatures; for TS/Vue —
-imports, top-level declarations, **members** of `interface`/`type`/`enum`,
-and for `.vue` — the component, `defineProps`/`defineEmits`/`defineModel`,
-stores and API calls it uses, and the components referenced from
-`<template>`. It replaces `cat`-ing a whole file when what's needed is shape
-or API — which is exactly where read tokens go.
+constructor dependencies, properties, method signatures; for Python — imports,
+top-level classes (with bases) and their methods, module-level functions and
+assignments; for TS/Vue — imports, top-level declarations, **members** of
+`interface`/`type`/`enum`, and for `.vue` — the component,
+`defineProps`/`defineEmits`/`defineModel`, stores and API calls it uses, and
+the components referenced from `<template>`. It replaces `cat`-ing a whole file
+when what's needed is shape or API — which is exactly where read tokens go.
 
 Go uses the stdlib `go/parser`. PHP uses a shared parser with 8.2–8.5 syntax
 normalised down to the 8.1 grammar it understands (covers >99.5% of real
-files). TS/Vue use a line-based extractor (approximate; there's no good
-pure-Go TS parser).
+files). Python and TS/Vue use a line-based extractor (approximate — no full
+parser; for Python, nested defs and docstring text are skipped).
 
 `sf code` is a thin **router**: it dispatches by extension to per-language
 libraries under `internal/common/code/{gocode,phpcode,tscode}` (each tested
@@ -332,9 +344,16 @@ sf claude myproj --task "add error handling to fetchUser in api.js"
 sf claude myproj --dry-run       # print the resolved command, don't launch
 ```
 
-Project resolution: `--dir` wins outright; else a bare project name resolves
-to `$SF_CLAUDE_DIR/<project>` (the projects root — set it once and every
-project name resolves under it); with neither, it's the current directory.
+Project resolution for a bare name, in order: `--dir` wins outright; else a
+saved alias; else an existing `$SF_CLAUDE_DIR/<project>` (the projects root —
+set it once and every project resolves under it); else a dir next to you,
+`./<project>` or `../<project>` (the sibling form also picks the current dir
+when it's named `<project>`). If none match, `sf` searches a couple of levels
+under `$SF_CLAUDE_DIR` and the current dir for a directory of that name — a
+single hit launches, several list for you to pick — and remembers the choice as
+an alias in `~/.config/sofia/projects.yaml`, so the next `sf claude <name>` is
+instant. Override or curate that file by hand anytime. With no name at all,
+it's the current directory.
 Set `$SF_CLAUDE_PROMPT_FILE` to a file of extra system-prompt text if you
 want claude to see something beyond `AGENTS.md`; unset, none is added.
 
@@ -658,7 +677,7 @@ sofia/
 │   ├── cc/                       # `sf cc` — Claude Code session digests
 │   ├── cli/                      # Cobra command tree for the master binary (RootCmd)
 │   ├── common/changed/           # `sf changed` — classified git diff
-│   ├── common/code/              # `sf code` — structural file summary (Go/PHP/TS/Vue)
+│   ├── common/code/              # `sf code` — structural file summary (Go/PHP/Python/TS/Vue)
 │   ├── common/composer/          # `sf composer` — PHP package tree overview
 │   ├── common/doctor/            # `sf doctor` — installation health (staleness)
 │   ├── common/github/            # `sf github` — CI runs, PR digest, branch cleanup
