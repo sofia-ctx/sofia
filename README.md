@@ -635,10 +635,10 @@ it.
 
 ```yaml
 schema: 1
-name: xcraft
-description: CRM agent pack
+name: acme
+description: Acme agent pack
 plugins:
-  - path: plugins/crm
+  - path: plugins/acme
 instructions:
   - src: instructions/AGENTS.md
 claude:
