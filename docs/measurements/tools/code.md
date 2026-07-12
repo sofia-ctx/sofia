@@ -147,7 +147,7 @@ across sessions).
 ## Architecture (router + per-language libraries + multiple files)
 
 `sf code` is a thin router (`internal/common/code`): dispatch by extension
-to per-language libraries under `code/{gocode,phpcode,tscode}` (each tested
+to per-language libraries under `code/{gocode,phpcode,pycode,tscode}` (each tested
 in isolation), a **parallel** run across multiple files, and aggregation.
 The compact-or-raw invariant, call logging, and slice mode all live in the
 router. Multiple files per call:

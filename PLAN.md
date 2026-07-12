@@ -102,7 +102,7 @@ inputs. Filters: `--tool`, `--since 30m|24h|7d`, `--limit`.
 ### Tool: `sf code` (multi-language structural summary)
 
 `internal/common/code` — a thin **router**: dispatch by extension to
-per-language backends `{gocode, phpcode, tscode}`, plus a parallel run across
+per-language backends `{gocode, phpcode, pycode, tscode}`, plus a parallel run across
 multiple files. A file's structure **without bodies**: Go via `go/parser`
 (package, imports, types with fields/tags, signatures); PHP via a
 `common/php` wrapper (namespace, attributes, constructor deps, methods);

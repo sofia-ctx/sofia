@@ -133,7 +133,7 @@ type vueRoutesInput struct {
 func registerTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "code",
-		Description: "Structural summary of source files without bodies (Go/PHP/TS/Vue) — a cheap alternative to reading whole files; or slice one or more symbols' full source in one call. JSON payload. Batch several files (or several symbols) into ONE call — one call per file/symbol wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips. Small files come back raw automatically — never worse than reading the file. Repeating an identical call within a few minutes returns a short 'already returned' stub; pass force:true only when you genuinely need the content again. For a whole-package map, pass a directory (recursive) and brief:true.",
+		Description: "Structural summary of source files without bodies (Go/PHP/Python/TS/Vue) — a cheap alternative to reading whole files; or slice one or more symbols' full source in one call. JSON payload. Batch several files (or several symbols) into ONE call — one call per file/symbol wastes agent turns. For a single file under ~8 KB, or when you need most of one file's bodies, plain file reading is cheaper than structural round-trips. Small files come back raw automatically — never worse than reading the file. Repeating an identical call within a few minutes returns a short 'already returned' stub; pass force:true only when you genuinely need the content again. For a whole-package map, pass a directory (recursive) and brief:true.",
 		Annotations: annotations(false),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in codeInput) (*mcp.CallToolResult, any, error) {
 		symbols := in.Symbols

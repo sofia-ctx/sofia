@@ -130,11 +130,11 @@ files). Python and TS/Vue use a line-based extractor (approximate — no full
 parser; for Python, nested defs and docstring text are skipped).
 
 `sf code` is a thin **router**: it dispatches by extension to per-language
-libraries under `internal/common/code/{gocode,phpcode,tscode}` (each tested
+libraries under `internal/common/code/{gocode,phpcode,pycode,tscode}` (each tested
 in isolation), runs multiple files **in parallel**, and aggregates the
 result. Pass a list of files: `sf code a.go b.php api/types.ts`. Or
 `<file> <symbol...>` to **slice** one or more symbols (the source of each
-function/method/type; Go and PHP) instead of the whole file — a symbol that
+function/method/type; Go, PHP, and Python) instead of the whole file — a symbol that
 isn't found doesn't fail the others, it's just noted as missing. Invariant:
 **compact-or-raw** — if a file can't be parsed, or the summary isn't
 shorter, the full file is returned (== `cat`), never an error, so `sf code`
