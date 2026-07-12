@@ -35,6 +35,10 @@ parallel, aggregating the output.
                --api flattens the effective public surface (own + trait +
                inherited methods, each tagged with its source) so you needn't
                chase a class across its traits and parents to learn its API.
+  Py   (.py):  imports, top-level classes (with bases) and their methods,
+               module-level functions and assignments (line/indentation-based,
+               approximate — no full parser; nested defs and docstring text are
+               skipped).
   TS/Vue (.ts/.tsx/.vue): imports, top-level declarations, interface/type/enum
                members, and for Vue SFCs props/emits/models, the stores and
                API calls used, and components rendered (line-based, approximate).
@@ -48,9 +52,9 @@ names and signatures, for when the map covers many files. Expansion caps at
 250 files — narrow the path if you hit that.
 
 Or pass one file and one or more symbol names to slice their full source
-(signature + body) instead of the whole file — Go and PHP only; match a
+(signature + body) instead of the whole file — Go, PHP, and Python; match a
 func/type/const/var by name, or a method by name or Recv.Method /
-Class::method. A requested symbol that isn't found doesn't fail the whole
+Class::method / Class.method (Python). A requested symbol that isn't found doesn't fail the whole
 call: whatever's found still comes back, with a comment marking what's
 missing (and the available names) — unless NONE of the requested symbols
 exist, which errors. Symbol slicing needs a single real file, not a
