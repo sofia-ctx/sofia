@@ -10,17 +10,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Overlays are personal, per-project instructions kept in a private git repo,
-// separate from the project's own shared AGENTS.md. On `sf claude <tag>` the
-// overlay for that tag is injected via --append-system-prompt (so it outranks
-// the repo's AGENTS.md, which claude reads as project context) and its dir is
-// added with --add-dir, so the session can read and edit the overlay and push
-// it back. Layout is by convention: <overlaysRoot>/<repo>/<tag>/AGENTS.md — one
+// Overlays are personal, per-project instructions and commands kept in a
+// private git repo, separate from the project's own shared AGENTS.md. On
+// `sf claude <tag>` the overlay for that tag contributes up to three things:
+// its AGENTS.md is injected via --append-system-prompt (so it outranks the
+// repo's AGENTS.md, which claude reads as project context); if the dir is a
+// Claude Code plugin (a .claude-plugin/plugin.json with commands/) it's loaded
+// via --plugin-dir, so its slash-commands are available for the session; and
+// the dir is added with --add-dir so the session can read and edit the overlay
+// and push it back. Layout is by convention: <overlaysRoot>/<repo>/<tag>/ — one
 // or more cloned repos, each holding a dir per project tag.
 
-// overlayFile is the instruction file a tag dir must contain to count as an
-// overlay for that tag.
+// overlayFile is a tag dir's personal instructions, injected as an
+// authoritative system prompt.
 const overlayFile = "AGENTS.md"
+
+// overlayPluginManifest marks a tag dir as a Claude Code plugin: sf loads it
+// with --plugin-dir so the overlay's commands/ (and any skills/agents) become
+// available for the session, namespaced under the plugin's own name.
+const overlayPluginManifest = ".claude-plugin/plugin.json"
 
 // overlayPreamble frames the overlay text as authoritative over the repo's own
 // AGENTS.md and points the agent at the editable source dir. %s is that dir.
@@ -49,21 +57,39 @@ func overlaysRoot() string {
 	return ""
 }
 
-// resolveOverlay finds the overlay dir for a project tag by scanning each cloned
-// repo under overlaysRoot() for a <repo>/<tag>/AGENTS.md. os.ReadDir returns
-// entries sorted, so a match is deterministic; when several repos define the
-// same tag it warns and takes the first. ok is false when nothing matches.
-func resolveOverlay(name string) (dir, promptFile string, ok bool) {
+// overlayMatch is a resolved overlay for a tag: the dir plus what it carries —
+// an AGENTS.md path (injected as an authoritative system prompt, "" if absent)
+// and whether the dir is a Claude Code plugin (loaded with --plugin-dir for its
+// commands).
+type overlayMatch struct {
+	dir    string
+	agents string
+	plugin bool
+}
+
+// isOverlayDir reports whether a tag dir carries anything sf injects — personal
+// instructions (AGENTS.md) or a plugin manifest (commands). An empty dir, or a
+// stray dir with neither, is not an overlay.
+func isOverlayDir(dir string) bool {
+	return fileExists(filepath.Join(dir, overlayFile)) ||
+		fileExists(filepath.Join(dir, overlayPluginManifest))
+}
+
+// resolveOverlay finds the overlay for a project tag by scanning each cloned
+// repo under overlaysRoot() for a <repo>/<tag>/ that isOverlayDir. os.ReadDir
+// returns entries sorted, so a match is deterministic; when several repos define
+// the same tag it warns and takes the first. ok is false when nothing matches.
+func resolveOverlay(name string) (overlayMatch, bool) {
 	if name == "" {
-		return "", "", false
+		return overlayMatch{}, false
 	}
 	root := overlaysRoot()
 	if root == "" {
-		return "", "", false
+		return overlayMatch{}, false
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return "", "", false
+		return overlayMatch{}, false
 	}
 
 	var matches []string
@@ -72,17 +98,22 @@ func resolveOverlay(name string) (dir, promptFile string, ok bool) {
 			continue
 		}
 		cand := filepath.Join(root, e.Name(), name)
-		if fileExists(filepath.Join(cand, overlayFile)) {
+		if isOverlayDir(cand) {
 			matches = append(matches, cand)
 		}
 	}
 	if len(matches) == 0 {
-		return "", "", false
+		return overlayMatch{}, false
 	}
 	if len(matches) > 1 {
 		fmt.Fprintf(os.Stderr, "note: overlay %q is defined by %d repos; using %s\n", name, len(matches), matches[0])
 	}
-	return matches[0], filepath.Join(matches[0], overlayFile), true
+	dir := matches[0]
+	m := overlayMatch{dir: dir, plugin: fileExists(filepath.Join(dir, overlayPluginManifest))}
+	if agents := filepath.Join(dir, overlayFile); fileExists(agents) {
+		m.agents = agents
+	}
+	return m, true
 }
 
 // overlayPrompt reads a tag's overlay file and wraps it in the precedence
@@ -95,8 +126,8 @@ func overlayPrompt(dir, promptFile string) string {
 	return fmt.Sprintf(overlayPreamble, dir) + string(data)
 }
 
-// overlayTags lists the project tags a cloned repo provides (subdirs holding an
-// AGENTS.md), sorted.
+// overlayTags lists the project tags a cloned repo provides (subdirs that
+// isOverlayDir), sorted.
 func overlayTags(repo string) []string {
 	entries, err := os.ReadDir(repo)
 	if err != nil {
@@ -104,7 +135,7 @@ func overlayTags(repo string) []string {
 	}
 	var tags []string
 	for _, e := range entries {
-		if e.IsDir() && fileExists(filepath.Join(repo, e.Name(), overlayFile)) {
+		if e.IsDir() && isOverlayDir(filepath.Join(repo, e.Name())) {
 			tags = append(tags, e.Name())
 		}
 	}
@@ -163,8 +194,8 @@ func newOverlayCommand() *cobra.Command {
 project's own AGENTS.md — without putting your personal notes in the shared repo.
 
 Layout is by convention: <overlaysRoot>/<repo>/<tag>/AGENTS.md, where <tag> is
-the project name you launch (e.g. ` + "`sf claude packages`" + ` reads the
-packages/ dir). overlaysRoot is $SF_CLAUDE_OVERLAY_DIR, else
+the project name you launch (e.g. ` + "`sf claude projectA`" + ` reads the
+projectA/ dir). overlaysRoot is $SF_CLAUDE_OVERLAY_DIR, else
 $XDG_DATA_HOME/sofia/overlays.`,
 	}
 	cmd.AddCommand(
@@ -285,11 +316,11 @@ func newOverlayPathCommand() *cobra.Command {
 		Short: "Print the overlay dir resolved for a project tag",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, _, ok := resolveOverlay(args[0])
+			m, ok := resolveOverlay(args[0])
 			if !ok {
 				return fmt.Errorf("no overlay for %q under %s", args[0], overlaysRoot())
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), dir)
+			fmt.Fprintln(cmd.OutOrStdout(), m.dir)
 			return nil
 		},
 	}
