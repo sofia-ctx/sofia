@@ -15,7 +15,7 @@ against that.
    savings." A ~1× result means the tool probably isn't worth building.
 2. **An economy doc is mandatory.** Every tool needs a
    `docs/measurements/tools/<tool>.md`: "without the tool" vs "with the tool," the
-   ratio, and where it stops helping (format — see `docs/README.md`).
+   ratio, and where it stops helping (format — see `docs/measurements/README.md`).
    Numbers come from a real run (`sf history --tool <name> --stats`), never
    from a guess.
 3. **YAGNI, no redundancy.** Don't build a foundation for a consumer that

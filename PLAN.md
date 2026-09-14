@@ -1,7 +1,7 @@
 # sofia architecture
 
 This document describes the current state. For short how-tos, read
-[README.md](./README.md); for planned work, see [ROADMAP.md](./ROADMAP.md).
+[README.md](./README.md). Planned work is not tracked in this repository.
 
 ## Purpose
 
@@ -26,38 +26,52 @@ and unambiguous in structure.
 sofia/
 ├── cmd/                          Go binary entry points (thin wrappers)
 │   ├── sf/                       master CLI (var RootCmd)
-│   └── common/<tool>/            standalone binaries: grep, cc, code, changed,
-│                                    doctor, composer, packagist, github, vue, worktrees
-├── internal/                     reusable packages
-│   ├── calllog/                  JSONL log, Counter, Fingerprint, Tracker
-│   ├── cc/                       `sf cc` — Claude Code session digests
-│   ├── cli/                      assembles the Cobra tree (RootCmd + init)
+│   └── common/<tool>/            standalone binaries: cc, changed, code, composer,
+│                                    doctor, github, grep, gripe, packagist, vue, worktrees
+├── pkg/                          public SDK (semver-guaranteed, see docs/sdk.md)
 │   ├── cliflags/                 shared flag helpers (--md/--json, dir completion, arg hints)
-│   ├── codectx/                  enclosing-context lookup for PHP/TS/Twig/INI
-│   ├── common/changed/           `sf changed` — classified git diff
-│   ├── common/code/              `sf code` — router: dispatch by extension + multi-file
-│   │   ├── gocode/               Go backend (go/parser): summary + slice
-│   │   ├── phpcode/               PHP backend (wraps common/php): summary + slice
-│   │   ├── pycode/                Python backend (indentation heuristics): summary + slice
-│   │   └── tscode/               TS/Vue backend (regex): summary + type members + SFC
-│   ├── common/composer/          `sf composer` — PHP package tree overview (ls/show/check)
-│   ├── common/doctor/            `sf doctor` — installation health (staleness of bin/sf vs git)
-│   ├── common/github/            `sf github` — CI runs (`ci`), PR digest (`pr`), branch cleanup (`branches`), via `gh`
-│   ├── common/grep/              `sf grep` — cross-project search
-│   ├── common/gripe/             `sf gripe` — feedback on silent misses
-│   ├── common/hook/              `sf hook pre` — PreToolUse guard for the Read channel
-│   ├── common/packagist/         `sf packagist` — release status (status) + publishing (release)
-│   ├── common/php/               PhpSymbolReader (VKCOM/php-parser AST)
-│   ├── common/vue/               `sf vue routes` — vue-router route map
-│   ├── common/worktrees/         `sf worktrees` — cross-project overview of worktree forks
-│   ├── emit/                     output budget: compact-or-raw (SmallerOf)
-│   ├── envfile/                  .env load/save/prompt
-│   ├── history/                  the `sf history` command
+│   ├── codectx/                  enclosing-context lookup for PHP/Python/TS/JS/Twig/INI
+│   ├── emit/                     output budget: compact-or-raw (SmallerOf), cost footer
 │   ├── matcher/                  line-based search (literal + regex, UTF-8)
+│   ├── php/                      PhpSymbolReader (VKCOM/php-parser AST)
 │   ├── strdist/                  Levenshtein for typo hints (did you mean)
 │   ├── tokens/                   heuristic LLM token estimate
 │   ├── toon/                     TOON primitives: Scalar, NeedsQuote, JoinList
 │   └── walker/                   parallel tree walker with filters
+├── internal/                     private packages
+│   ├── adapter/                  Tier-1 declarative adapters (layers/grep/refs from plugin.yaml)
+│   ├── calllog/                  JSONL log, Counter, Fingerprint, Tracker
+│   ├── cc/                       `sf cc` — Claude Code session digests
+│   ├── cli/                      assembles the Cobra tree (RootCmd + init)
+│   ├── common/changed/           `sf changed` — classified git diff
+│   ├── common/code/              `sf code` — router: dispatch by extension + multi-file
+│   │   ├── gocode/               Go backend (go/parser): summary + slice
+│   │   ├── phpcode/              PHP backend (wraps pkg/php): summary + slice
+│   │   ├── pycode/               Python backend (indentation heuristics): summary + slice
+│   │   └── tscode/               TS/JS/Vue backend (regex): summary + type members + SFC
+│   ├── common/composer/          `sf composer` — PHP package tree overview (ls/show/check)
+│   ├── common/doctor/            `sf doctor` — installation health
+│   ├── common/github/            `sf github` — CI runs (`ci`), PR digest (`pr`), branch cleanup (`branches`), via `gh`
+│   ├── common/grep/              `sf grep` — cross-project search
+│   ├── common/gripe/             `sf gripe` — feedback on silent misses
+│   ├── common/hook/              `sf hook pre` — PreToolUse guard for the Read channel
+│   ├── common/initcmd/           `sf init` — agent onboarding (AGENTS.md block, skill, hook, MCP)
+│   ├── common/packagist/         `sf packagist` — release status (status) + publishing (release)
+│   ├── common/refs/              `sf refs` — def/use fan for one symbol
+│   ├── common/vue/               `sf vue routes` — vue-router route map
+│   ├── common/worktrees/         `sf worktrees` — cross-project overview of worktree forks
+│   ├── dedup/                    near-duplicate call stub (`sf code` within a window)
+│   ├── envfile/                  .env load/save/prompt
+│   ├── gitclone/, gitexec/       git helpers shared by plugin/pack install
+│   ├── history/                  the `sf history` command
+│   ├── launch/                   `sf claude` launcher + overlays
+│   ├── mcpserver/                `sf mcp` — MCP server over stdio
+│   ├── pack/                     `sf pack` — plugins + instructions as one artifact
+│   ├── plugin/                   `sf plugin` — discovery, manifest, invoke, install/upgrade
+│   └── version/                  version from ldflags or debug.ReadBuildInfo
+├── adapters/example/             worked Tier-1 adapter manifest
+├── skills/sf-context/            the Claude Code skill (go:embed'ed into the binary)
+├── docs/                         plugins, adapters, sdk, overlays, codex, measurements/
 └── bin/                          gitignored — build artifacts
 ```
 
@@ -107,7 +121,7 @@ multiple files. A file's structure **without bodies**: Go via `go/parser`
 (package, imports, types with fields/tags, signatures); PHP via a
 `common/php` wrapper (namespace, attributes, constructor deps, methods);
 Python via indentation heuristics (classes+methods, module functions,
-assignments); TS/Vue via a regex extractor (type members, SFC
+assignments); TS/JS/Vue via a regex extractor (type members, SFC
 `defineProps`/stores/API calls). The second positional argument is a
 **single-symbol slice** (Go/PHP/Python); `--exported` narrows to the public
 API; `--api` (PHP) computes the

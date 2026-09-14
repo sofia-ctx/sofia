@@ -43,7 +43,7 @@ lint: ## Run golangci-lint, pinned to CI's v2.12.2
 	else \
 		echo "golangci-lint not found on PATH."; \
 		echo "Install $(LINT_VERSION) (matches CI): https://golangci-lint.run/welcome/install/"; \
-		echo "  or run once via: go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(LINT_VERSION) run"; \
+		echo "  or run once via: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION) run"; \
 	fi
 
 # Pre-commit gate: vet + lint + tests.
