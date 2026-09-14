@@ -3,9 +3,11 @@
 // is deliberately approximate but covers what a structural read needs:
 // imports, top-level declarations, interface/type/enum members, and — for
 // Vue SFCs — props, emits, models, the stores and API calls used, and the
-// components rendered. Plain JavaScript (.js/.mjs/.cjs/.jsx) is TS without
-// the type layer, so the same line patterns apply; the type-only ones simply
-// never match there.
+// components rendered. Classes are listed with their method names (the
+// body is scanned at class depth only, so a nested function's locals never
+// leak in). Plain JavaScript (.js/.mjs/.cjs/.jsx) is TS without the type
+// layer, so the same line patterns apply; the type-only ones simply never
+// match there.
 package tscode
 
 import (
@@ -73,20 +75,20 @@ type TSFile struct {
 	Stores     []string   `json:"stores,omitempty"`     // .vue composables/stores used (useXStore)
 	APICalls   []string   `json:"api_calls,omitempty"`  // .vue client.* / axios.* calls
 	Components []string   `json:"components,omitempty"` // .vue components used in <template>
-	Types      []TSType   `json:"types,omitempty"`      // interface/type/enum with members
-	Symbols    []TSSymbol `json:"symbols"`              // const | function | class
+	Types      []TSType   `json:"types,omitempty"`      // interface/type/enum/class with members
+	Symbols    []TSSymbol `json:"symbols"`              // const | function
 }
 
 type TSSymbol struct {
-	Kind     string `json:"kind"` // const | function | class
+	Kind     string `json:"kind"` // const | function
 	Name     string `json:"name"`
 	Exported bool   `json:"exported"`
 }
 
 type TSType struct {
-	Kind     string `json:"kind"` // interface | type | enum
+	Kind     string `json:"kind"` // interface | type | enum | class
 	Name     string `json:"name"`
-	Members  string `json:"members,omitempty"` // "id: string; name: string" | "A, B" | union RHS — blank in Brief mode for interface/type
+	Members  string `json:"members,omitempty"` // "id: string; name: string" | "A, B" | union RHS | "constructor, draw" (class methods) — blank in Brief mode for interface/type
 	Exported bool   `json:"exported"`
 }
 
@@ -95,19 +97,26 @@ var (
 	reTSImport2 = regexp.MustCompile(`^\s*import\s+['"]([^'"]+)['"]`)
 	reTSTypeHd  = regexp.MustCompile(`^\s*(export\s+)?(interface|enum)\s+([A-Za-z_$][\w$]*)`)
 	reTSAlias   = regexp.MustCompile(`^\s*(export\s+)?type\s+([A-Za-z_$][\w$]*)\s*=\s*(.*)$`)
-	reTSDecl    = regexp.MustCompile(`^\s*export\s+(?:default\s+)?(?:async\s+)?(const|function|class)\s+([A-Za-z_$][\w$]*)`)
-	reTSFunc    = regexp.MustCompile(`^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)`)
-	reTSConst   = regexp.MustCompile(`^\s*const\s+([A-Za-z_$][\w$]*)\s*[=:]`)
-	reMember    = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*\??\s*:\s*(.+?);?\s*$`)
-	reEnumKey   = regexp.MustCompile(`^\s*([A-Za-z_$][\w$]*)\s*(?:=.*)?,?\s*$`)
-	reScript    = regexp.MustCompile(`(?s)<script([^>]*)>(.*?)</script>`)
-	reTemplate  = regexp.MustCompile(`(?s)<template[^>]*>(.*)</template>`)
-	reDefine    = regexp.MustCompile(`\bdefine(Props|Emits)\b`)
-	reModel     = regexp.MustCompile(`(?:const\s+([A-Za-z_$][\w$]*)\s*=\s*)?defineModel(?:<[^>]*>)?\s*\(\s*['"]?([A-Za-z_$][\w$]*)?`)
-	reStore     = regexp.MustCompile(`\b(use[A-Z][A-Za-z0-9_$]*)\s*\(`)
-	reAPICall   = regexp.MustCompile(`\b(?:client|api|axios|http)\.([a-zA-Z][\w$]*)\s*\(`)
-	reCompTag   = regexp.MustCompile(`<([A-Z][A-Za-z0-9]*)\b`)
-	reKey       = regexp.MustCompile(`['"]?([A-Za-z_$][\w$:-]*)['"]?\s*[?]?\s*:`)
+	reTSClassHd = regexp.MustCompile(`^\s*(export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)`)
+	reTSDecl    = regexp.MustCompile(`^\s*export\s+(?:default\s+)?(?:async\s+)?(const|function)\s+([A-Za-z_$][\w$]*)`)
+	// A method head at class depth: optional TS/JS modifiers, an optional
+	// generator star, the name (private #names included), a parameter list
+	// and — after an optional TS return type — the opening brace. Arrow
+	// fields (`draw = () => {`) are the second form.
+	reMethod   = regexp.MustCompile(`(?:^|[\s;}])(?:(?:public|private|protected|readonly|override|static|async|abstract)\s+)*(?:get\s+|set\s+)?(?:\*\s*)?(#?[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^{=]+?)?\s*\{`)
+	reArrowFld = regexp.MustCompile(`(?:^|[\s;}])(?:(?:public|private|protected|readonly|static)\s+)*(#?[A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+?)?\s*=>`)
+	reTSFunc   = regexp.MustCompile(`^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)`)
+	reTSConst  = regexp.MustCompile(`^\s*const\s+([A-Za-z_$][\w$]*)\s*[=:]`)
+	reMember   = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*\??\s*:\s*(.+?);?\s*$`)
+	reEnumKey  = regexp.MustCompile(`^\s*([A-Za-z_$][\w$]*)\s*(?:=.*)?,?\s*$`)
+	reScript   = regexp.MustCompile(`(?s)<script([^>]*)>(.*?)</script>`)
+	reTemplate = regexp.MustCompile(`(?s)<template[^>]*>(.*)</template>`)
+	reDefine   = regexp.MustCompile(`\bdefine(Props|Emits)\b`)
+	reModel    = regexp.MustCompile(`(?:const\s+([A-Za-z_$][\w$]*)\s*=\s*)?defineModel(?:<[^>]*>)?\s*\(\s*['"]?([A-Za-z_$][\w$]*)?`)
+	reStore    = regexp.MustCompile(`\b(use[A-Z][A-Za-z0-9_$]*)\s*\(`)
+	reAPICall  = regexp.MustCompile(`\b(?:client|api|axios|http)\.([a-zA-Z][\w$]*)\s*\(`)
+	reCompTag  = regexp.MustCompile(`<([A-Z][A-Za-z0-9]*)\b`)
+	reKey      = regexp.MustCompile(`['"]?([A-Za-z_$][\w$:-]*)['"]?\s*[?]?\s*:`)
 )
 
 // ReadTS reads a .ts/.tsx/.mts/.cts, .js/.jsx/.mjs/.cjs or .vue file into a
@@ -218,6 +227,16 @@ func parseScript(f *TSFile, src string) {
 			scanVue(f, line, storeSeen, apiSeen)
 		}
 
+		// class with its method names (body scanned at class depth only).
+		if m := reTSClassHd.FindStringSubmatch(line); m != nil {
+			t := TSType{Kind: "class", Name: m[2], Exported: m[1] != ""}
+			body, next := rawBlock(lines, i)
+			t.Members = strings.Join(classMethods(body), ", ")
+			f.Types = append(f.Types, t)
+			i = next
+			continue
+		}
+
 		if m := reTSDecl.FindStringSubmatch(line); m != nil {
 			f.Symbols = append(f.Symbols, TSSymbol{Kind: m[1], Name: m[2], Exported: true})
 			continue
@@ -260,6 +279,117 @@ func scanVue(f *TSFile, line string, storeSeen, apiSeen map[string]bool) {
 	for _, m := range reAPICall.FindAllStringSubmatch(line, -1) {
 		addUniq(&f.APICalls, apiSeen, m[1])
 	}
+}
+
+// jsControl are the identifiers that look like a method head at class depth
+// but aren't one.
+var jsControl = map[string]bool{"if": true, "for": true, "while": true, "switch": true, "catch": true, "function": true, "return": true, "else": true, "do": true, "with": true}
+
+// classMethods lists the method (and arrow-field) names declared directly in
+// a class body — the text gatherBlock returned for the class. Only text at
+// class depth is matched: every `{…}` nested one level down (a method body)
+// is skipped, and braces inside a parameter list (`(opts = {})`) don't
+// count, so several one-line methods on the same line all get seen.
+func classMethods(body string) []string {
+	var out []string
+	seen := map[string]bool{}
+	depth, parens := 0, 0
+	var seg strings.Builder
+	add := func(name string) {
+		if name == "" || jsControl[name] || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	flush := func() {
+		text := seg.String()
+		seg.Reset()
+		for _, m := range reMethod.FindAllStringSubmatch(text, -1) {
+			add(m[1])
+		}
+		for _, m := range reArrowFld.FindAllStringSubmatch(text, -1) {
+			add(m[1])
+		}
+	}
+	for _, line := range strings.Split(body, "\n") {
+		for _, r := range line {
+			switch {
+			case r == '(' && depth == 0:
+				parens++
+			case r == ')' && depth == 0 && parens > 0:
+				parens--
+			case r == '{' && parens == 0:
+				if depth == 0 {
+					seg.WriteRune(r) // the head's own `) {` — let the regex see it
+					flush()
+				}
+				depth++
+				continue
+			case r == '}' && parens == 0:
+				if depth > 0 {
+					depth--
+				}
+				if depth == 0 {
+					seg.WriteRune(' ')
+				}
+				continue
+			}
+			if depth == 0 {
+				seg.WriteRune(r)
+			}
+		}
+		if depth == 0 {
+			seg.WriteRune('\n')
+		}
+		flush()
+	}
+	return out
+}
+
+// rawBlock is gatherBlock's verbatim sibling: the text between the first `{`
+// at/after line i and its matching `}`, with every inner brace kept (which
+// gatherBlock drops — fine for interface bodies, fatal for a class body
+// whose method heads end in `{`). Braces inside a parameter list don't
+// count toward the depth.
+func rawBlock(lines []string, i int) (string, int) {
+	depth, parens := 0, 0
+	started := false
+	var b strings.Builder
+	for j := i; j < len(lines); j++ {
+		for _, r := range lines[j] {
+			switch r {
+			case '(':
+				parens++
+			case ')':
+				if parens > 0 {
+					parens--
+				}
+			case '{':
+				if parens == 0 {
+					depth++
+					if depth == 1 {
+						started = true
+						continue
+					}
+				}
+			case '}':
+				if parens == 0 {
+					depth--
+					if started && depth == 0 {
+						return b.String(), j
+					}
+				}
+			}
+			if started {
+				b.WriteRune(r)
+			}
+		}
+		if started {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String(), len(lines) - 1
 }
 
 // gatherBlock returns the text between the first `{` at/after line i and its

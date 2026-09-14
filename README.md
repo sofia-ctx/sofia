@@ -120,7 +120,7 @@ constructor dependencies, properties, method signatures; for Python — imports,
 top-level classes (with bases) and their methods, module-level functions and
 assignments; for TS/JS/Vue (`.ts/.tsx/.mts/.cts`, `.js/.jsx/.mjs/.cjs`,
 `.vue`) — imports, top-level declarations, **members** of
-`interface`/`type`/`enum`, and for `.vue` — the component,
+`interface`/`type`/`enum`, classes with their method names, and for `.vue` — the component,
 `defineProps`/`defineEmits`/`defineModel`, stores and API calls it uses, and
 the components referenced from `<template>`. It replaces `cat`-ing a whole file
 when what's needed is shape or API — which is exactly where read tokens go.

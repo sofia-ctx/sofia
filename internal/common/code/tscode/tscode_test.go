@@ -189,12 +189,70 @@ func TestReadJS(t *testing.T) {
 	for _, s := range f.Symbols {
 		names = append(names, s.Kind+":"+s.Name)
 	}
-	want := "const:VERSION,const:cache,function:sweep,function:walk,class:Reporter"
+	want := "const:VERSION,const:cache,function:sweep,function:walk"
 	if got := strings.Join(names, ","); got != want {
 		t.Fatalf("symbols = %q, want %q", got, want)
 	}
-	if len(f.Types) != 0 {
-		t.Fatalf("plain JS has no types, got %v", f.Types)
+	c := findType(f, "Reporter")
+	if c == nil || c.Kind != "class" || !c.Exported || c.Members != "print" {
+		t.Fatalf("class Reporter = %+v", c)
+	}
+}
+
+const sampleClassJS = `class FakeAudioContext {
+    constructor(opts = {}) { this.state = 'running'; }
+    get currentTime() { return 0; }
+    resume() {} suspend() {}
+    createBuffer(ch, len) { return { getChannelData: () => new Float32Array(len), length: len }; }
+    createGain() { return audioNode; } createOscillator() { return audioNode; }
+    async strikeClip(atk, def) {
+        if (atk) { this.hit(atk); }
+        for (const c of def) { helper(c); }
+        function inner() {}
+    }
+    #secret() {}
+    static of(x) { return x; }
+    *items() {}
+    draw = (ctx) => { ctx.fill(); }
+}
+`
+
+func TestClassMethodsJS(t *testing.T) {
+	f := readTS(t, "audio.mjs", sampleClassJS)
+	c := findType(f, "FakeAudioContext")
+	if c == nil || c.Kind != "class" || c.Exported {
+		t.Fatalf("class = %+v", c)
+	}
+	want := "constructor, currentTime, resume, suspend, createBuffer, createGain, createOscillator, strikeClip, #secret, of, items, draw"
+	if c.Members != want {
+		t.Fatalf("members =\n  %q\nwant\n  %q", c.Members, want)
+	}
+	if len(f.Symbols) != 0 {
+		t.Fatalf("nothing inside the class body may leak into symbols: %+v", f.Symbols)
+	}
+}
+
+const sampleClassTS = `export abstract class Service<T> implements Runnable {
+  private cache = new Map<string, T>();
+  constructor(private readonly repo: Repo<T>) {}
+  public async run(id: string): Promise<T | null> {
+    return this.repo.find(id);
+  }
+  protected abstract validate(v: T): boolean;
+  handle = async (e: Event): Promise<void> => { await this.run(e.id); };
+  static create<T>(repo: Repo<T>): Service<T> { return new Impl(repo); }
+}
+`
+
+func TestClassMethodsTS(t *testing.T) {
+	f := readTS(t, "svc.ts", sampleClassTS)
+	c := findType(f, "Service")
+	if c == nil || c.Kind != "class" || !c.Exported {
+		t.Fatalf("class = %+v", c)
+	}
+	// `validate` is abstract (no body) and so not a method head here.
+	if want := "constructor, run, handle, create"; c.Members != want {
+		t.Fatalf("members = %q, want %q", c.Members, want)
 	}
 }
 

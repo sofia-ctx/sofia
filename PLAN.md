@@ -48,7 +48,7 @@ sofia/
 │   │   ├── gocode/               Go backend (go/parser): summary + slice
 │   │   ├── phpcode/              PHP backend (wraps pkg/php): summary + slice
 │   │   ├── pycode/               Python backend (indentation heuristics): summary + slice
-│   │   └── tscode/               TS/JS/Vue backend (regex): summary + type members + SFC
+│   │   └── tscode/               TS/JS/Vue backend (regex): summary + type/class members + SFC
 │   ├── common/composer/          `sf composer` — PHP package tree overview (ls/show/check)
 │   ├── common/doctor/            `sf doctor` — installation health
 │   ├── common/github/            `sf github` — CI runs (`ci`), PR digest (`pr`), branch cleanup (`branches`), via `gh`

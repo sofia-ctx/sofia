@@ -129,8 +129,9 @@ with --api`.
 
 There's no good pure-Go TS parser, so the extractor is line/block-based
 (regex), and honestly approximate: imports, top-level declarations
-(`const`/`function`/`class`), **members** of `interface`/`type`/`enum`
-(name: type), and for `.vue` — the component name,
+(`const`/`function`), **members** of `interface`/`type`/`enum`
+(name: type), classes with their **method names** (scanned at class depth
+only, so a method's locals never leak in), and for `.vue` — the component name,
 `defineProps`/`defineEmits`/`defineModel`, stores it uses (`useXStore`) and
 API calls (`client.*`/axios), and the components referenced from
 `<template>`. Plain JavaScript goes through the same patterns (the
@@ -152,11 +153,11 @@ JS, measured 2026-09-14 on two private browser-game codebases (`cat` and
 | `tools/sweep.mjs` (13 KB) | 4,726 | **186** | **~25×** |
 | `src/art.mts` (19 KB) | 6,751 | **410** | **~16.5×** |
 
+| `toon/Animation/Choreography.mjs` (one class, 15 methods) | 7,304 | **105** | **~70×** |
+
 Where it stops helping: a JS file that is one big data object (a clip table,
 a config) summarises to a handful of names — cheap, but it tells the agent
-little more than the filename did; and class bodies contribute only the
-class name, since the line-based extractor doesn't read method shorthand.
-Before this, `.mjs`/`.mts` weren't read at all — every agent call on them
+little more than the filename did. Before this, `.mjs`/`.mts` weren't read at all — every agent call on them
 was an exit-1 (9 of the last 60 days' failures on the maintainer's machine).
 
 Extending the digest to TS/Vue eliminated hot re-reads of this frontend (per
