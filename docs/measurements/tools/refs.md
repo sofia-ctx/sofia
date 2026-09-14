@@ -10,8 +10,9 @@ deterministic `internal/tokens.Estimate` heuristic every other tool in
 ## What it does
 
 `sf refs <symbol>` answers "who defines/uses this symbol across the tree,
-and from where" in one call: a word-boundary literal scan (Go/PHP/TS/TSX/Vue
-by default), every hit labeled `def`/`use` and its enclosing function/type.
+and from where" in one call: a word-boundary literal scan (Go/PHP/Python/
+TS/JS/Vue by default — the same list `sf code` reads), every hit labeled
+`def`/`use` and its enclosing function/type.
 
 ## The baseline it replaces
 

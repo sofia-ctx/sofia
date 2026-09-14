@@ -365,3 +365,27 @@ func TestFooterShowsRawBaseline(t *testing.T) {
 		}
 	}
 }
+
+func TestEnclosingPythonAndJS(t *testing.T) {
+	setLogDir(t)
+	dir := t.TempDir()
+	writeFile(t, dir, "repo.py", "class Repo:\n    def save(self):\n        return helper()\n\ndef helper():\n    return 1\n")
+	writeFile(t, dir, "app.mjs", "export function main() {\n  return helper();\n}\n")
+
+	res, _, err := scan(Options{Symbol: "helper"}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Defs != 1 || res.Uses != 2 {
+		t.Fatalf("Defs/Uses = %d/%d, want 1/2", res.Defs, res.Uses)
+	}
+	want := map[string]string{"repo.py": "def save", "app.mjs": "function main"}
+	for _, r := range res.Refs {
+		if r.Kind != "use" {
+			continue
+		}
+		if r.Enclosing != want[r.File] {
+			t.Errorf("%s: enclosing = %q, want %q", r.File, r.Enclosing, want[r.File])
+		}
+	}
+}

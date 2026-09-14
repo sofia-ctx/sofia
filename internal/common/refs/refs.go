@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/internal/common/code"
 	"github.com/sofia-ctx/sofia/internal/common/code/gocode"
 	"github.com/sofia-ctx/sofia/internal/common/grep"
 	"github.com/sofia-ctx/sofia/pkg/codectx"
@@ -59,10 +60,10 @@ type Result struct {
 	Skipped   []string `json:"skipped,omitempty"`
 }
 
-// defaultExts is the parseable set refs understands (matches sf code's
-// supportedExts): the languages with either an AST (Go) or a regex
-// enclosing heuristic (PHP/TS/TSX/Vue).
-var defaultExts = []string{".go", ".php", ".ts", ".tsx", ".vue"}
+// defaultExts is the parseable set refs understands — exactly `sf code`'s
+// list (internal/common/code): the languages with either an AST (Go) or a
+// regex enclosing heuristic (PHP/Python/TS/JS/Vue, pkg/codectx).
+var defaultExts = code.SupportedExts()
 
 // identRe accepts a bare identifier: a leading letter/underscore/$, then
 // letters/digits/underscore/$. Rejects regex metacharacters and whitespace —
@@ -173,7 +174,7 @@ func applyCap(all []Ref, capN int) (kept []Ref, truncated int) {
 // once per run. Anything outside these three families defaults to "use" in
 // kindFor.
 type declRegexes struct {
-	goRe, phpRe, tsRe *regexp.Regexp
+	goRe, phpRe, pyRe, tsRe *regexp.Regexp
 }
 
 func compileDeclRegexes(sym string) declRegexes {
@@ -181,6 +182,7 @@ func compileDeclRegexes(sym string) declRegexes {
 	return declRegexes{
 		goRe:  regexp.MustCompile(`^\s*(func\s+(\([^)]*\)\s*)?|type\s+|const\s+|var\s+)` + q + `\b`),
 		phpRe: regexp.MustCompile(`\b(function|class|interface|trait|enum|const)\s+` + q + `\b`),
+		pyRe:  regexp.MustCompile(`^\s*(async\s+)?(def|class)\s+` + q + `\b`),
 		tsRe:  regexp.MustCompile(`\b(export\s+)?(default\s+)?(async\s+)?(function|class|interface|type|enum|const|let)\s+` + q + `\b`),
 	}
 }
@@ -196,7 +198,9 @@ func kindFor(ext, text string, re declRegexes) string {
 		pattern = re.goRe
 	case ".php":
 		pattern = re.phpRe
-	case ".ts", ".tsx", ".vue":
+	case ".py":
+		pattern = re.pyRe
+	case ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue":
 		pattern = re.tsRe
 	default:
 		return "use"

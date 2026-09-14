@@ -69,3 +69,44 @@ func TestEnclosing_NoMatch(t *testing.T) {
 		t.Errorf("expected empty when no scope, got %q", got)
 	}
 }
+
+func TestEnclosing_Python(t *testing.T) {
+	src := []string{
+		"class Repo:",               // 0
+		"    def save(self):",       // 1
+		"        return db.put()",   // 2
+		"",                          // 3
+		"    async def load(self):", // 4
+		"        x = 1",             // 5
+		"",                          // 6
+		"def helper():",             // 7
+		"    return Repo()",         // 8
+		"",                          // 9
+		"TOP = helper()",            // 10
+	}
+	cases := map[int]string{
+		2:  "def save",
+		5:  "def load",
+		8:  "def helper",
+		10: "", // top level: nothing encloses it
+		1:  "class Repo",
+	}
+	for idx, want := range cases {
+		if got := Enclosing(src, idx, ".py"); got != want {
+			t.Errorf("line %d: got %q, want %q", idx, got, want)
+		}
+	}
+}
+
+func TestEnclosing_JS(t *testing.T) {
+	src := []string{
+		"export async function sweep(root) {",
+		"  return walk(root);",
+		"}",
+	}
+	for _, ext := range []string{".js", ".mjs", ".cjs", ".jsx", ".mts", ".cts"} {
+		if got := Enclosing(src, 1, ext); got != "function sweep" {
+			t.Errorf("%s: got %q", ext, got)
+		}
+	}
+}

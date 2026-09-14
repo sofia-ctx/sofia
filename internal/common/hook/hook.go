@@ -27,6 +27,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sofia-ctx/sofia/internal/common/code"
 )
 
 // Input is the subset of the PreToolUse stdin payload the hook cares about.
@@ -85,16 +87,11 @@ func MinBytes() int64 {
 	return defaultMinBytes
 }
 
-// structuralExt mirrors what `sf code` dispatches on
-// (internal/common/code/code.go) — nudging makes sense only where the
-// structural reader actually works.
+// structuralExt is exactly what `sf code` dispatches on — nudging makes
+// sense only where the structural reader actually works, and the list lives
+// in one place (internal/common/code) so the two can't drift.
 func structuralExt(path string) bool {
-	for _, ext := range []string{".go", ".php", ".ts", ".tsx", ".vue"} {
-		if strings.HasSuffix(path, ext) {
-			return true
-		}
-	}
-	return false
+	return code.SupportedExt(path)
 }
 
 // Decide inspects one PreToolUse payload and picks an action. st may be nil

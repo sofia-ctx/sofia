@@ -33,6 +33,8 @@ func TestDecide(t *testing.T) {
 	smallGo := writeFile(t, dir, "small.go", 500)
 	bigMD := writeFile(t, dir, "big.md", 9000)
 	bigPHP := writeFile(t, dir, "big.php", 9000)
+	bigPY := writeFile(t, dir, "big.py", 9000)
+	bigMJS := writeFile(t, dir, "big.mjs", 9000)
 
 	cases := []struct {
 		name   string
@@ -49,6 +51,8 @@ func TestDecide(t *testing.T) {
 		{"mode suggest allows with note", readPayload(bigGo, 0, 0), "suggest", ActionSuggest},
 		{"mode strict denies", readPayload(bigGo, 0, 0), "strict", ActionDeny},
 		{"bare cat big php → deny", bashPayload("cat "+bigPHP, dir), "nudge", ActionDeny},
+		{"big python full read → deny", readPayload(bigPY, 0, 0), "nudge", ActionDeny},
+		{"big mjs full read → deny", readPayload(bigMJS, 0, 0), "nudge", ActionDeny},
 		{"piped cat passes", bashPayload("cat "+bigPHP+" | head -50", dir), "nudge", ""},
 		{"relative cat resolves via cwd", bashPayload("cat big.php", dir), "nudge", ActionDeny},
 		{"non-cat bash passes", bashPayload("git status", dir), "nudge", ""},
