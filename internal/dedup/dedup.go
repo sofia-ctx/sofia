@@ -229,7 +229,7 @@ type stubJSON struct {
 // WriteStub writes the one-line dedup stub for hit in the given output
 // format (json gets the structured form, everything else — toon, md, plain
 // slice output — gets the text line). Callers still print the normal cost
-// footer after this (see emit.Footer): SOFIA_FOOTER=off silences that footer
+// footer after this (see emit.FooterFor): SOFIA_FOOTER=off silences that footer
 // but not the stub line itself, which is the payload, not decoration.
 func WriteStub(w io.Writer, format string, h *Hit) {
 	age := formatAge(h.Age)

@@ -2,6 +2,7 @@ package code
 
 import (
 	"bytes"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -100,5 +101,45 @@ func TestFooterDeterministic(t *testing.T) {
 	a, b := run(), run()
 	if !bytes.Equal(a, b) {
 		t.Errorf("two identical runs differ:\n--- first\n%s\n--- second\n%s", a, b)
+	}
+}
+
+// --format=json must be a complete JSON document on stdout — no cost footer
+// appended after it (the numbers live in calls.jsonl). This is the contract
+// machine consumers rely on; it broke once without anyone noticing because
+// nothing parsed the output end to end.
+func TestJSONOutputHasNoFooter(t *testing.T) {
+	structuralOnly(t)
+	t.Setenv("SOFIA_FOOTER", "")
+	p := writeTmp(t, "s.go", "package x\n\nfunc Bar() {}\n")
+	q := writeTmp(t, "t.go", "package x\n\nfunc Baz() {}\n")
+	// One file: exactly one document. Several files: a stream of one
+	// document per file (a json.Decoder reads them back to back) — and in
+	// both cases nothing that isn't JSON.
+	for _, inputs := range [][]string{{p}, {p, q}} {
+		var buf bytes.Buffer
+		if err := Run(Options{Inputs: inputs, Format: "json"}, &buf); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		dec := json.NewDecoder(bytes.NewReader(buf.Bytes()))
+		n := 0
+		for dec.More() {
+			var v any
+			if err := dec.Decode(&v); err != nil {
+				t.Fatalf("%d inputs: stdout is not pure JSON: %v\n%s", len(inputs), err, buf.String())
+			}
+			n++
+		}
+		if n != len(inputs) {
+			t.Fatalf("%d inputs: got %d JSON documents\n%s", len(inputs), n, buf.String())
+		}
+	}
+	// Symbol slice path too.
+	var buf bytes.Buffer
+	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"Bar"}, Format: "json"}, &buf); err != nil {
+		t.Fatalf("Run slice: %v", err)
+	}
+	if strings.Contains(buf.String(), "# sf") {
+		t.Fatalf("slice json carries a footer:\n%s", buf.String())
 	}
 }

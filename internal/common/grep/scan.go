@@ -124,7 +124,7 @@ func Run(opts Options, w io.Writer) error {
 	if renderErr == nil {
 		// No single raw baseline to compare a tree search against — the
 		// footer reports this call's own cost only.
-		emit.Footer(cw, cw.Tokens, 0)
+		emit.FooterFor(cw, opts.Format, cw.Tokens, 0)
 	}
 	tracker.RecordOutput(cw)
 	tracker.Finish(renderErr)

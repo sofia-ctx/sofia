@@ -134,7 +134,7 @@ func Run(opts Options, w io.Writer) error {
 		renderErr = fmt.Errorf("unknown format %q (use toon|md|json)", opts.Format)
 	}
 	if renderErr == nil {
-		emit.Footer(cw, cw.Tokens, rawTok)
+		emit.FooterFor(cw, opts.Format, cw.Tokens, rawTok)
 	}
 	tracker.SetSummary(map[string]any{
 		"symbol":  result.Symbol,

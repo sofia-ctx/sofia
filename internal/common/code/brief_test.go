@@ -168,7 +168,7 @@ func TestBriefJSON(t *testing.T) {
 	if !found {
 		t.Errorf("Widget struct's inventory entry should survive brief JSON: %+v", v.Types)
 	}
-	if !strings.Contains(out, "# sf ≈") {
-		t.Errorf("brief JSON output should still end with the cost footer:\n%s", lastLine(t, out))
+	if strings.Contains(out, "# sf ≈") {
+		t.Errorf("--format json is a bare document for parsers; no cost footer:\n%s", lastLine(t, out))
 	}
 }

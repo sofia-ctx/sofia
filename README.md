@@ -150,7 +150,10 @@ disables the passthrough.
 
 Every `code`/`grep`/`refs`/`changed` call ends with a one-line cost footer — e.g.
 `# sf ≈612 tok · raw ≈3120 · saved ≈2508` — so the per-call token economics
-are visible to the agent itself; `SOFIA_FOOTER=off` hides it.
+are visible to the agent itself; `SOFIA_FOOTER=off` hides it. `--format json`
+carries no footer: the document is for parsers and stays bare (the same
+numbers are in `calls.jsonl`). Over MCP the footer follows the JSON, because
+there the model is the reader.
 
 **`--api`** (PHP): the effective public surface of a class — its own methods
 plus methods from `use`-d traits (recursively) plus inherited ones from

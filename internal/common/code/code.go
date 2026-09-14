@@ -101,7 +101,7 @@ func Run(opts Options, w io.Writer) error {
 	g := dedup.Begin("code", opts.Force, keyParts(opts)...)
 	if h := g.Hit(); h != nil {
 		dedup.WriteStub(cw, opts.Format, h)
-		emit.Footer(cw, cw.Tokens, h.Tok)
+		emit.FooterFor(cw, opts.Format, cw.Tokens, h.Tok)
 		g.CommitStub()
 		// tok_rep: what the identical full answer cost when first produced —
 		// the quota report's savings baseline for a stub (see `sf cc value
@@ -127,7 +127,7 @@ func Run(opts Options, w io.Writer) error {
 			"tok_raw": rawTok,
 		})
 		if err == nil {
-			emit.Footer(cw, cw.Tokens, rawTok)
+			emit.FooterFor(cw, opts.Format, cw.Tokens, rawTok)
 			g.CommitFull(cw.Tokens)
 		}
 		tracker.RecordOutput(cw)
@@ -147,7 +147,7 @@ func Run(opts Options, w io.Writer) error {
 		}
 		rawTok += b.rawTok
 	}
-	emit.Footer(cw, cw.Tokens, rawTok)
+	emit.FooterFor(cw, opts.Format, cw.Tokens, rawTok)
 	g.CommitFull(cw.Tokens)
 	// tok_raw: the combined raw-file estimate the footer already compared
 	// against — recorded here so it survives past the process (gap #1: the

@@ -82,3 +82,30 @@ func TestFooterOff(t *testing.T) {
 		t.Errorf("SOFIA_FOOTER=off must suppress the footer, got %q", buf.String())
 	}
 }
+
+func TestFooterForSkipsJSON(t *testing.T) {
+	t.Setenv("SOFIA_FOOTER", "")
+	var buf bytes.Buffer
+	FooterFor(&buf, "json", 612, 3120)
+	if buf.Len() != 0 {
+		t.Errorf("json output must carry no footer, got %q", buf.String())
+	}
+	for _, f := range []string{"", "toon", "md"} {
+		buf.Reset()
+		FooterFor(&buf, f, 612, 3120)
+		if buf.String() != "# sf ≈612 tok · raw ≈3120 · saved ≈2508\n" {
+			t.Errorf("format %q: got %q", f, buf.String())
+		}
+	}
+}
+
+func TestKeepFooterOnJSON(t *testing.T) {
+	t.Setenv("SOFIA_FOOTER", "")
+	KeepFooterOnJSON(true)
+	t.Cleanup(func() { KeepFooterOnJSON(false) })
+	var buf bytes.Buffer
+	FooterFor(&buf, "json", 612, 3120)
+	if buf.String() != "# sf ≈612 tok · raw ≈3120 · saved ≈2508\n" {
+		t.Errorf("with the switch on, json gets the footer; got %q", buf.String())
+	}
+}

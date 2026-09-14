@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync/atomic"
 
 	"github.com/sofia-ctx/sofia/pkg/tokens"
 )
@@ -63,6 +64,10 @@ func SmallerOf(w io.Writer, compact, raw []byte) (Result, error) {
 //
 // SOFIA_FOOTER=off disables the footer everywhere; this is the only place
 // that switch is read.
+//
+// Callers that render a machine-readable format should go through FooterFor
+// instead: a trailing "# sf …" line after a JSON document breaks every
+// strict parser downstream.
 func Footer(w io.Writer, tok, rawTok int64) {
 	if os.Getenv("SOFIA_FOOTER") == "off" {
 		return
@@ -77,3 +82,27 @@ func Footer(w io.Writer, tok, rawTok int64) {
 	}
 	fmt.Fprintf(w, "# sf ≈%d tok\n", tok)
 }
+
+// FooterFor is Footer for a command that knows its output format: json
+// output gets no footer at all — the document must stay parseable as-is, and
+// the same numbers are already in calls.jsonl (out_tokens, tok_raw) for
+// anyone who wants them — while every other format behaves exactly like
+// Footer. The one process that wants the footer after JSON anyway is the
+// MCP server (see KeepFooterOnJSON).
+func FooterFor(w io.Writer, format string, tok, rawTok int64) {
+	if format == "json" && !jsonFooter.Load() {
+		return
+	}
+	Footer(w, tok, rawTok)
+}
+
+// jsonFooter is the process-wide "footer after JSON too" switch, off by
+// default: on the CLI, `--format json` is read by a parser and a trailing
+// comment line breaks it. The MCP server flips it on at start-up — its JSON
+// payload is read by the model, not a parser, and showing the model what
+// the call cost is the whole point of the footer.
+var jsonFooter atomic.Bool
+
+// KeepFooterOnJSON makes FooterFor print the cost footer after json output
+// as well (on) or restores the default of leaving json bare (off).
+func KeepFooterOnJSON(on bool) { jsonFooter.Store(on) }

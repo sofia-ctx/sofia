@@ -79,7 +79,10 @@
 // the CLI serializer verbatim rather than re-encoding, so the MCP payload can
 // never drift from the CLI's. (One exception: `code` in symbol-slice mode
 // returns raw source text, not JSON — that command has no JSON form for a
-// slice; it is surfaced as text as-is.)
+// slice; it is surfaced as text as-is.) One deliberate difference from the
+// CLI: the per-call cost footer follows the JSON here (emit.KeepFooterOnJSON)
+// because the model reads this payload; the CLI's --format json stays a bare
+// document for parsers.
 package mcpserver
 
 import (
@@ -91,6 +94,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
+	"github.com/sofia-ctx/sofia/pkg/emit"
 )
 
 // serverName / serverVersion identify this server to MCP clients. Version is
@@ -109,6 +113,10 @@ const jsonFormat = "json"
 // NewServer builds the MCP server with every public-safe Context Provider
 // registered as a tool. It is exported so tests can drive it in-memory.
 func NewServer() *mcp.Server {
+	// The MCP payload is read by the model, so the per-call cost footer
+	// belongs after the JSON here — unlike the CLI's --format json, which
+	// a parser consumes and which therefore stays bare.
+	emit.KeepFooterOnJSON(true)
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Title:   serverTitle,
