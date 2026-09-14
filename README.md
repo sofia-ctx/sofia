@@ -20,10 +20,30 @@ cheap and unambiguous:
 SF stands for Sophia Foundation / Source Fabric. Architecture and design
 rationale — [PLAN.md](./PLAN.md).
 
+## Install
+
+Pick one:
+
+```bash
+# 1. Release binary (Linux/macOS, amd64/arm64) — verifies checksums.txt, installs to ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/sofia-ctx/sofia/main/install.sh | sh
+#    SF_VERSION=v0.20.0 pins a release; SF_INSTALL_DIR=/usr/local/bin changes the target.
+#    Re-run to update.
+
+# 2. With a Go toolchain (any OS, Windows included)
+go install github.com/sofia-ctx/sofia/cmd/sf@latest      # or @v0.20.0
+
+# 3. From source — see Build below.
+```
+
+Then, in a project: `sf init` wires the agent (AGENTS.md block, skill, hook,
+MCP; `sf init --corporate` writes only the AGENTS.md block for locked-down
+seats), and `sf doctor` checks the install.
+
 ## Requirements
 
-- Go ≥ 1.24 (this repository is tested on 1.25)
-- Linux/macOS, shell — Fish or Bash (for completion)
+- Linux/macOS (Windows via `go install`), shell — Fish or Bash (for completion)
+- Go ≥ 1.24 only to build from source (this repository is tested on 1.25)
 
 ## Build
 

@@ -21,6 +21,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: install.sh syntax
+        run: sh -n install.sh
+
       - name: Cross-compile windows
         run: GOOS=windows go build ./...
 
