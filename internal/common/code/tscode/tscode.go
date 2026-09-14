@@ -1,8 +1,11 @@
-// Package tscode is the TypeScript/Vue backend for `sf code`. Extraction is
-// line/block-based (there is no good pure-Go TS parser), so it is deliberately
-// approximate but covers what a structural read needs: imports, top-level
-// declarations, interface/type/enum members, and — for Vue SFCs — props,
-// emits, models, the stores and API calls used, and the components rendered.
+// Package tscode is the TypeScript/JavaScript/Vue backend for `sf code`.
+// Extraction is line/block-based (there is no good pure-Go TS parser), so it
+// is deliberately approximate but covers what a structural read needs:
+// imports, top-level declarations, interface/type/enum members, and — for
+// Vue SFCs — props, emits, models, the stores and API calls used, and the
+// components rendered. Plain JavaScript (.js/.mjs/.cjs/.jsx) is TS without
+// the type layer, so the same line patterns apply; the type-only ones simply
+// never match there.
 package tscode
 
 import (
@@ -17,7 +20,7 @@ import (
 	"github.com/sofia-ctx/sofia/pkg/toon"
 )
 
-// Summarize writes the structural summary of the TS/Vue file at path to w.
+// Summarize writes the structural summary of the TS/JS/Vue file at path to w.
 // api (PHP's effective-surface flag) is not meaningful for TS/Vue and is
 // ignored. brief requests the signature-only cut — see Brief for exactly
 // what it drops.
@@ -58,10 +61,10 @@ func Summarize(w io.Writer, path, format string, exported, _, brief bool) (map[s
 	return map[string]any{"lang": f.Lang, "symbols": len(f.Symbols), "types": len(f.Types), "imports": len(f.Imports)}, nil
 }
 
-// TSFile is the structural summary of a TypeScript / Vue source file.
+// TSFile is the structural summary of a TypeScript / JavaScript / Vue source file.
 type TSFile struct {
 	File       string     `json:"file"`
-	Lang       string     `json:"lang"`                 // ts | vue
+	Lang       string     `json:"lang"`                 // ts | js | vue
 	Component  string     `json:"component,omitempty"`  // .vue only
 	Imports    []string   `json:"imports,omitempty"`    // module specifiers
 	Props      []string   `json:"props,omitempty"`      // .vue defineProps keys
@@ -107,26 +110,36 @@ var (
 	reKey       = regexp.MustCompile(`['"]?([A-Za-z_$][\w$:-]*)['"]?\s*[?]?\s*:`)
 )
 
-// ReadTS reads a .ts/.tsx/.vue file into a structural summary.
+// ReadTS reads a .ts/.tsx/.mts/.cts, .js/.jsx/.mjs/.cjs or .vue file into a
+// structural summary. Lang is "vue", "js" or "ts" by extension.
 func ReadTS(path string) (*TSFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	f := &TSFile{File: path}
+	f := &TSFile{File: path, Lang: langOf(path)}
 	src := string(data)
-	if strings.HasSuffix(path, ".vue") {
-		f.Lang = "vue"
+	if f.Lang == "vue" {
 		f.Component = strings.TrimSuffix(filepath.Base(path), ".vue")
 		if tmpl := reTemplate.FindStringSubmatch(src); tmpl != nil {
 			f.Components = templateComponents(f.Component, tmpl[1])
 		}
 		src = vueScript(src)
-	} else {
-		f.Lang = "ts"
 	}
 	parseScript(f, src)
 	return f, nil
+}
+
+// langOf names the language by extension: .vue → vue, the JS spellings →
+// js, everything else this backend is handed → ts.
+func langOf(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".vue":
+		return "vue"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "js"
+	}
+	return "ts"
 }
 
 // Brief collapses field/value-level detail for a signature-only view:

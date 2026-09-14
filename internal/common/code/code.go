@@ -65,11 +65,36 @@ func backendFor(path string) (backend, bool) {
 		return backend{summarize: phpcode.Summarize, slice: phpcode.Slice}, true
 	case strings.HasSuffix(path, ".py"):
 		return backend{summarize: pycode.Summarize, slice: pycode.Slice}, true
-	case hasSuffixAny(path, ".ts", ".tsx", ".vue"):
+	case hasSuffixAny(path, scriptExts...):
 		return backend{summarize: tscode.Summarize}, true
 	}
 	return backend{}, false
 }
+
+// scriptExts is the TS/JS/Vue family the line-based tscode extractor reads.
+// JS is TS minus the type annotations, so the same regexes apply; the ESM
+// (.mjs/.mts) and CommonJS (.cjs/.cts) spellings are just extensions.
+var scriptExts = []string{".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue"}
+
+// languageExts is the one list of what `sf code` can read, in the order the
+// error message and docs cite them. hook and refs derive their own lists
+// from it (SupportedExt/SupportedExts) so the three never drift again —
+// they did once: Python was readable here but invisible to both.
+var languageExts = append([]string{".go", ".php", ".py"}, scriptExts...)
+
+// SupportedExt reports whether `sf code` has a backend for path's extension.
+func SupportedExt(path string) bool {
+	return hasSuffixAny(path, languageExts...)
+}
+
+// SupportedExts returns the extensions `sf code` reads, as a fresh slice
+// (callers may mutate it).
+func SupportedExts() []string {
+	return append([]string(nil), languageExts...)
+}
+
+// supportedExtLabel is the human-readable family list for error messages.
+const supportedExtLabel = "Go (.go), PHP (.php), Python (.py), TS/JS/Vue (.ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs/.vue)"
 
 // Run dispatches the requested files to their backends and writes the result.
 // Multiple files are summarised in parallel and aggregated in input order.
@@ -290,8 +315,8 @@ func validate(opts Options) error {
 // literal file argument the caller named directly.
 func checkExts(inputs []string) error {
 	for _, p := range inputs {
-		if !supportedExt(p) {
-			return fmt.Errorf("sf code supports Go (.go), PHP (.php), Python (.py), TS/Vue (.ts/.tsx/.vue); got %s", p)
+		if !SupportedExt(p) {
+			return fmt.Errorf("sf code supports %s; got %s", supportedExtLabel, p)
 		}
 	}
 	return nil
@@ -319,7 +344,13 @@ const maxExpandedFiles = 250
 // supportedExts is the extension allow-list directory/glob expansion filters
 // to — the same languages backendFor dispatches (kept as a map here so
 // walker.Options.Exts can use it directly).
-var supportedExts = map[string]bool{".go": true, ".php": true, ".py": true, ".ts": true, ".tsx": true, ".vue": true}
+var supportedExts = func() map[string]bool {
+	m := make(map[string]bool, len(languageExts))
+	for _, e := range languageExts {
+		m[e] = true
+	}
+	return m
+}()
 
 // expandInputs turns each input into one or more supported-extension files:
 //   - a directory expands recursively (internal/walker, same default ignores
@@ -399,7 +430,7 @@ func expandOne(in string) ([]string, error) {
 			files = append(files, sub...)
 			continue
 		}
-		if supportedExt(m) {
+		if SupportedExt(m) {
 			files = append(files, m)
 		}
 	}
@@ -608,10 +639,6 @@ func maxParallel() int {
 		n = 1
 	}
 	return n
-}
-
-func supportedExt(path string) bool {
-	return hasSuffixAny(path, ".go", ".php", ".py", ".ts", ".tsx", ".vue")
 }
 
 func hasSuffixAny(path string, exts ...string) bool {

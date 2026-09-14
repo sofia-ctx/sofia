@@ -90,10 +90,10 @@ common `--md`/`--json` aliases. Default ignores: `vendor`, `node_modules`,
 `sf refs <symbol>` answers "who defines/uses this symbol across the tree,
 and from where" in one call — `grep -rn <symbol>` plus opening every caller
 by hand to see what function it's in, folded into a single deterministic
-scan (Go/PHP/TS/TSX/Vue by default). Every hit is labeled `def` or `use`
+scan (Go/PHP/Python/TS/JS/Vue by default). Every hit is labeled `def` or `use`
 (textually — a name declared in several places shows several defs) and
 carries its enclosing function/type: AST-derived for Go, the same regex
-heuristics `sf grep` uses for PHP/TS/Vue.
+heuristics `sf grep` uses for PHP/Python/TS/JS/Vue.
 
 ```bash
 sf refs Handle                 # who defines/calls Handle, across the tree
@@ -110,7 +110,7 @@ negative `--max` to remove the cap entirely.
 Measured on this repo's own tree
 ([docs/measurements/tools/refs.md](docs/measurements/tools/refs.md)).
 
-### `sf code` — structural summary of a source file (Go + PHP + Python + TS/Vue)
+### `sf code` — structural summary of a source file (Go + PHP + Python + TS/JS/Vue)
 
 A compact structural summary of a file **without function bodies**: for Go —
 package, imports, types (struct fields + tags, interface methods), function
@@ -118,7 +118,8 @@ and method signatures, const/var; for PHP — namespace, class/interface/trait/
 enum, extends/implements, attributes (`#[ORM\…]`/`#[Route]`/`#[IsGranted]`),
 constructor dependencies, properties, method signatures; for Python — imports,
 top-level classes (with bases) and their methods, module-level functions and
-assignments; for TS/Vue — imports, top-level declarations, **members** of
+assignments; for TS/JS/Vue (`.ts/.tsx/.mts/.cts`, `.js/.jsx/.mjs/.cjs`,
+`.vue`) — imports, top-level declarations, **members** of
 `interface`/`type`/`enum`, and for `.vue` — the component,
 `defineProps`/`defineEmits`/`defineModel`, stores and API calls it uses, and
 the components referenced from `<template>`. It replaces `cat`-ing a whole file
@@ -126,8 +127,9 @@ when what's needed is shape or API — which is exactly where read tokens go.
 
 Go uses the stdlib `go/parser`. PHP uses a shared parser with 8.2–8.5 syntax
 normalised down to the 8.1 grammar it understands (covers >99.5% of real
-files). Python and TS/Vue use a line-based extractor (approximate — no full
-parser; for Python, nested defs and docstring text are skipped).
+files). Python and TS/JS/Vue use a line-based extractor (approximate — no full
+parser; for Python, nested defs and docstring text are skipped; for JS the
+type-level patterns simply never match).
 
 `sf code` is a thin **router**: it dispatches by extension to per-language
 libraries under `internal/common/code/{gocode,phpcode,pycode,tscode}` (each tested
@@ -174,7 +176,7 @@ sf code internal/cc/cc.go Parse ingestEntry      # slice several symbols at once
 ```
 
 Measured: Go **6–23×**, PHP **2–20×** (`--api` over traits/inheritance
-**~10×**), TS/Vue **~6–14×** against `cat`
+**~10×**), TS/Vue **~6–14×**, JS **~13–50×** against `cat`
 ([docs/measurements/tools/code.md](docs/measurements/tools/code.md)).
 
 ### `sf vue routes` — vue-router route map
@@ -272,7 +274,7 @@ build, so the loop closes without manual copy-pasting
 
 Intercepts the single biggest spend channel: full reads of large source
 files. A Claude Code PreToolUse hook calls the hidden `sf hook pre` command:
-a full `Read` or bare `cat` of a `.go/.php/.ts/.tsx/.vue` file ≥4K is denied
+a full `Read` or bare `cat` of a source file `sf code` can read (Go/PHP/Python/TS/JS/Vue) ≥8K is denied
 **once** with a hint toward `sf code <file>` / `sf code <file> <Symbol>`; an
 identical repeat call is allowed (so a Read-before-Edit flow doesn't break).
 Modes via `SOFIA_HOOK_MODE`: `off | suggest | nudge (default) | strict`;
@@ -680,7 +682,7 @@ sofia/
 │   ├── cc/                       # `sf cc` — Claude Code session digests
 │   ├── cli/                      # Cobra command tree for the master binary (RootCmd)
 │   ├── common/changed/           # `sf changed` — classified git diff
-│   ├── common/code/              # `sf code` — structural file summary (Go/PHP/Python/TS/Vue)
+│   ├── common/code/              # `sf code` — structural file summary (Go/PHP/Python/TS/JS/Vue)
 │   ├── common/composer/          # `sf composer` — PHP package tree overview
 │   ├── common/doctor/            # `sf doctor` — installation health (staleness)
 │   ├── common/github/            # `sf github` — CI runs, PR digest, branch cleanup

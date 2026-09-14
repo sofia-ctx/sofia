@@ -1,6 +1,6 @@
 ---
 name: sf-context
-description: Token-cheap source context via the `sf` CLI — structural file summaries instead of full reads, capped tree search, single-symbol bodies, classified diffs, cheap session resume. Use BEFORE reading or searching source code (.go/.php/.ts/.tsx/.vue) — especially full Read/cat of a big file, repeated reads of the same file, or tree-wide grep.
+description: Token-cheap source context via the `sf` CLI — structural file summaries instead of full reads, capped tree search, single-symbol bodies, classified diffs, cheap session resume. Use BEFORE reading or searching source code (.go/.php/.py/.ts/.tsx/.js/.mjs/.vue) — especially full Read/cat of a big file, repeated reads of the same file, or tree-wide grep.
 ---
 
 # sf-context — cheap context instead of a full read
@@ -13,7 +13,7 @@ the context window gets re-read from cache on every following turn.
 
 | Need | Instead of | Call |
 |---|---|---|
-| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/Python/TS/Vue; ~6–23×; small files auto-return raw) |
+| A file's shape: types, signatures, API | Read/cat the whole thing | `sf code <file>` (Go/PHP/Python/TS/JS/Vue; ~6–23×; small files auto-return raw) |
 | Map a whole package/dir | reading files one by one | `sf code <dir> --brief` (recursive, one call) |
 | Only the public surface | — | `sf code <file> --exported`; PHP with traits/parents — `--api` |
 | One function/method/type's body | re-reading the whole file | `sf code <file> <Sym1> [Sym2 …]` (one call, several bodies) |

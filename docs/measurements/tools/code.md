@@ -125,7 +125,7 @@ The cheap path advertises the full one: `--exported` on a class with traits
 or a parent adds a one-line hint, `# +api: traits(…) extends(…) — re-run
 with --api`.
 
-## TS/Vue (`.ts` / `.tsx` / `.vue`)
+## TS/JS/Vue (`.ts` / `.tsx` / `.mts` / `.cts` / `.js` / `.jsx` / `.mjs` / `.cjs` / `.vue`)
 
 There's no good pure-Go TS parser, so the extractor is line/block-based
 (regex), and honestly approximate: imports, top-level declarations
@@ -133,12 +133,31 @@ There's no good pure-Go TS parser, so the extractor is line/block-based
 (name: type), and for `.vue` — the component name,
 `defineProps`/`defineEmits`/`defineModel`, stores it uses (`useXStore`) and
 API calls (`client.*`/axios), and the components referenced from
-`<template>`.
+`<template>`. Plain JavaScript goes through the same patterns (the
+type-level ones never match), so a `.mjs` file lists its imports,
+functions, classes and `const`s.
 
 | File (production Vue frontend) | `cat` | `sf code` | ratio |
 |---|---|---|---|
 | `views/ProductsView.vue` | 8,235 | **600** | **~13.7×** |
 | `api/types.ts` (35 interfaces) | 2,280 | **354** | **~6.4×** |
+
+JS, measured 2026-09-14 on two private browser-game codebases (`cat` and
+`sf code` columns are the footer's own token estimates, `pkg/tokens`):
+
+| File | `cat` | `sf code` | ratio |
+|---|---|---|---|
+| `toon/Draw/Fighter.mjs` (190 KB, 299 top-level symbols) | 73,933 | **1,491** | **~50×** |
+| `app.mjs` (51 KB) | 14,485 | **1,144** | **~12.7×** |
+| `tools/sweep.mjs` (13 KB) | 4,726 | **186** | **~25×** |
+| `src/art.mts` (19 KB) | 6,751 | **410** | **~16.5×** |
+
+Where it stops helping: a JS file that is one big data object (a clip table,
+a config) summarises to a handful of names — cheap, but it tells the agent
+little more than the filename did; and class bodies contribute only the
+class name, since the line-based extractor doesn't read method shorthand.
+Before this, `.mjs`/`.mts` weren't read at all — every agent call on them
+was an exit-1 (9 of the last 60 days' failures on the maintainer's machine).
 
 Extending the digest to TS/Vue eliminated hot re-reads of this frontend (per
 `sf cc candidates`: `ProductsView.vue` was re-read ×27, `api/types.ts` ×10

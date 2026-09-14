@@ -3,6 +3,7 @@ package tscode
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -152,4 +153,60 @@ func hasSymExp(f *TSFile, kind, name string, exported bool) bool {
 		}
 	}
 	return false
+}
+
+const sampleMJS = `import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+export const VERSION = "1.2";
+
+const cache = new Map();
+
+export async function sweep(root) {
+  return walk(root);
+}
+
+async function walk(dir) {
+  return dir;
+}
+
+export class Reporter {
+  print() {}
+}
+
+export default sweep;
+`
+
+func TestReadJS(t *testing.T) {
+	f := readTS(t, "sweep.mjs", sampleMJS)
+	if f.Lang != "js" {
+		t.Fatalf("lang = %q, want js", f.Lang)
+	}
+	if got := strings.Join(f.Imports, ","); got != "node:fs/promises,node:path" {
+		t.Fatalf("imports = %q", got)
+	}
+	var names []string
+	for _, s := range f.Symbols {
+		names = append(names, s.Kind+":"+s.Name)
+	}
+	want := "const:VERSION,const:cache,function:sweep,function:walk,class:Reporter"
+	if got := strings.Join(names, ","); got != want {
+		t.Fatalf("symbols = %q, want %q", got, want)
+	}
+	if len(f.Types) != 0 {
+		t.Fatalf("plain JS has no types, got %v", f.Types)
+	}
+}
+
+func TestLangOf(t *testing.T) {
+	cases := map[string]string{
+		"a.ts": "ts", "a.tsx": "ts", "a.mts": "ts", "a.cts": "ts",
+		"a.js": "js", "a.jsx": "js", "a.mjs": "js", "a.cjs": "js",
+		"A.vue": "vue",
+	}
+	for in, want := range cases {
+		if got := langOf(in); got != want {
+			t.Errorf("langOf(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
