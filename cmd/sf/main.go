@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -13,7 +14,28 @@ func main() {
 	// the cached metadata index, so this doesn't fork any plugin.
 	cli.AttachPlugins()
 	if err := calllog.Run(cli.RootCmd, ""); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		if !alreadyReported(err) {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
+		os.Exit(statusCode(err))
 	}
+}
+
+type exitCoder interface{ ExitCode() int }
+type reportedError interface{ AlreadyReported() bool }
+
+func alreadyReported(err error) bool {
+	var reported reportedError
+	return errors.As(err, &reported) && reported.AlreadyReported()
+}
+
+func statusCode(err error) int {
+	var coded exitCoder
+	if errors.As(err, &coded) {
+		code := coded.ExitCode()
+		if code > 0 && code <= 255 {
+			return code
+		}
+	}
+	return 1
 }

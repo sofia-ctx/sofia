@@ -87,7 +87,11 @@ package plugin
 // request is byte-for-byte the same); a plugin whose release lives in a
 // private repo declares `min_sf: "1.2.0"` so an older host reports "requires
 // host protocol >= 1.2" instead of failing the download with a bare 404.
-const HostProtocol = "1.2.0"
+//
+// 1.3.0: per-command `log_args` policy — sensitive argv can be delivered to a
+// plugin without being retained in sf history. A plugin that depends on this
+// privacy boundary declares `min_sf: "1.3.0"`.
+const HostProtocol = "1.3.0"
 
 // Kind distinguishes the two discovery mechanisms. It changes how a plugin is
 // gated: Managed plugins negotiate protocol compatibility from their manifest;

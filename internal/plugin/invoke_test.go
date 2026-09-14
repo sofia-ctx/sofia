@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,33 @@ func TestInvoke_GreetStdoutEnvAndOneLogLine(t *testing.T) {
 	}
 }
 
+func TestInvoke_CommandCanSuppressLoggedArgs(t *testing.T) {
+	isolate(t)
+	logDir := t.TempDir()
+	t.Setenv("SOFIA_LOG_DIR", logDir)
+	installFixture(t, "hello")
+	d, _ := Find(Load(), "hello")
+	dontLog := false
+	var out bytes.Buffer
+	err := Invoke(context.Background(), InvokeRequest{
+		Descriptor: d,
+		Command:    &Command{Path: "greet", LogArgs: &dontLog},
+		Args:       []string{"sensitive-value"},
+		Stdout:     &out,
+		Stderr:     &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "sensitive-value") {
+		t.Fatal("argument was not delivered to the plugin")
+	}
+	lines := logLines(t, logDir)
+	if len(lines) != 1 || len(lines[0].Args) != 0 {
+		t.Fatalf("sensitive args reached history: %+v", lines)
+	}
+}
+
 // The crash / non-zero-exit case: still exactly one log line, carrying the real
 // exit code and an error, even though the plugin printed nothing to stdout.
 func TestInvoke_CrashStillOneLogLineWithRealExit(t *testing.T) {
@@ -144,6 +172,13 @@ func TestInvoke_CrashStillOneLogLineWithRealExit(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "exited with code 3") {
 		t.Fatalf("want an exit-3 error, got %v", err)
+	}
+	var processErr *ProcessExitError
+	if !errors.As(err, &processErr) || processErr.ExitCode() != 3 {
+		t.Fatalf("want typed exit-3 error, got %#v", err)
+	}
+	if !processErr.AlreadyReported() {
+		t.Fatal("child stderr should mark the process error as already reported")
 	}
 
 	lines := logLines(t, logDir)

@@ -65,7 +65,11 @@ func Invoke(ctx context.Context, req InvokeRequest) error {
 	d := req.Descriptor
 	argv := commandArgv(req.Command, req.Args)
 
-	tracker := calllog.Start(toolName(d, req.Command), append([]string(nil), req.Args...))
+	logArgs := req.Args
+	if req.Command != nil && !req.Command.ShouldLogArgs() {
+		logArgs = nil
+	}
+	tracker := calllog.Start(toolName(d, req.Command), append([]string(nil), logArgs...))
 	counter := &calllog.Counter{W: req.Stdout}
 	var runErr error
 	defer func() {
@@ -87,7 +91,8 @@ func Invoke(ctx context.Context, req InvokeRequest) error {
 	c := exec.CommandContext(ctx, d.Exec, argv...)
 	c.Env = childEnv(d, settings)
 	c.Stdout = counter
-	c.Stderr = req.Stderr
+	stderr := &byteCounter{W: req.Stderr}
+	c.Stderr = stderr
 
 	if d.Manifest.HasCapability(capStdinJSON) {
 		payload, err := json.Marshal(buildRequest(d, argv, settings))
@@ -106,13 +111,44 @@ func Invoke(ctx context.Context, req InvokeRequest) error {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			runErr = fmt.Errorf("plugin %s exited with code %d", d.Name, code)
+			runErr = &ProcessExitError{Plugin: d.Name, Code: code, reported: stderr.N > 0}
 		} else {
 			runErr = fmt.Errorf("plugin %s failed to start: %w", d.Name, err)
 		}
 		return runErr
 	}
 	return nil
+}
+
+// ProcessExitError preserves the subprocess status through Cobra and main.
+// It deliberately carries no argv, SQL, credentials, or child stderr.
+type ProcessExitError struct {
+	Plugin   string
+	Code     int
+	reported bool
+}
+
+func (e *ProcessExitError) Error() string {
+	return fmt.Sprintf("plugin %s exited with code %d", e.Plugin, e.Code)
+}
+
+// ExitCode lets the sf entrypoint propagate an intentional plugin status.
+func (e *ProcessExitError) ExitCode() int { return e.Code }
+
+// AlreadyReported is true when the child already wrote a useful diagnostic.
+func (e *ProcessExitError) AlreadyReported() bool { return e.reported }
+
+type byteCounter struct {
+	W io.Writer
+	N int64
+}
+
+func (w *byteCounter) Write(p []byte) (int, error) {
+	w.N += int64(len(p))
+	if w.W == nil {
+		return len(p), nil
+	}
+	return w.W.Write(p)
 }
 
 // commandArgv builds the argv handed to the plugin: the declared command path

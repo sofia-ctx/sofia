@@ -63,7 +63,14 @@ type Command struct {
 	Path string `yaml:"path" json:"path"`
 	// Short is the one-line help shown in `sf --help` / `sf <name> --help`.
 	Short string `yaml:"short" json:"short,omitempty"`
+	// LogArgs controls whether raw command arguments are retained in sf history.
+	// Nil preserves the historical default (true). Set false for SQL, prompts,
+	// payloads, or any command whose argv can contain sensitive values.
+	LogArgs *bool `yaml:"log_args" json:"log_args,omitempty"`
 }
+
+// ShouldLogArgs defaults to true for backward compatibility.
+func (c Command) ShouldLogArgs() bool { return c.LogArgs == nil || *c.LogArgs }
 
 // Setting mirrors the resolvable fields of envfile.Field (the func-valued
 // Validator is not expressible in YAML and is omitted). Field converts it back

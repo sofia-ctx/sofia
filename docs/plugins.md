@@ -47,6 +47,21 @@ Open `./hello/hello`. It's a `case` statement keyed on the first argument
 `greet`. Add a new subcommand by giving it an entry under `commands:` in
 `plugin.yaml` and a matching case in the script.
 
+Command arguments are retained in `sf history` by default. For a command whose
+argv may contain SQL, prompts, tokens or other sensitive payloads, disable that
+retention explicitly and require host protocol 1.3.0:
+
+```yaml
+min_sf: "1.3.0"
+commands:
+  - path: query
+    short: Run one query
+    log_args: false
+```
+
+The command still receives its argv; only history storage and its argument
+fingerprint are suppressed. This does not redact stdout or stderr.
+
 ## Iterate
 
 - Edited the **executable**? Nothing to refresh — sofia execs it fresh on

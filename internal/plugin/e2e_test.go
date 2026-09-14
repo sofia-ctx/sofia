@@ -55,8 +55,8 @@ func TestEndToEnd_FixturePlugin(t *testing.T) {
 		installHello(t, dataDir)
 
 		res := runSF(t, bin, dataDir, logDir, "hello", "boom")
-		if res.exit == 0 {
-			t.Fatalf("expected a non-zero sf exit for a crashing plugin")
+		if res.exit != 3 {
+			t.Fatalf("sf exit=%d, want the plugin's exit 3; stderr=%q", res.exit, res.stderr)
 		}
 		lines := readLog(t, logDir)
 		if len(lines) != 1 {

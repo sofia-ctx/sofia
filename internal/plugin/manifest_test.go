@@ -18,6 +18,7 @@ commands:
     short: "Print a greeting"
   - path: cache clear
     short: "Drop the cache"
+    log_args: false
 capabilities:
   - stdin-json
 settings:
@@ -41,6 +42,9 @@ adapter:
 	}
 	if len(m.Commands) != 2 || m.Commands[0].Path != "greet" || m.Commands[1].Path != "cache clear" {
 		t.Errorf("commands wrong: %+v", m.Commands)
+	}
+	if !m.Commands[0].ShouldLogArgs() || m.Commands[1].ShouldLogArgs() {
+		t.Errorf("command argument logging policy wrong: %+v", m.Commands)
 	}
 	if !m.HasCapability("stdin-json") || m.HasCapability("nope") {
 		t.Errorf("capabilities wrong: %+v", m.Capabilities)
