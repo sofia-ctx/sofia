@@ -410,6 +410,36 @@ class Second {}
 	}
 }
 
+func TestReadString_SkipsAnonymousClassBeforeNamedDeclaration(t *testing.T) {
+	src := `<?php
+namespace App;
+$helper = new class extends Helper { public function wrong(): void {} };
+abstract class Scenario extends TestCase {
+    private const int COUNT = 1;
+    public function expected(): void {}
+}
+`
+	sym, err := ReadString(src, "scenario.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sym.FQCN != `App\Scenario` || sym.Extends != `App\TestCase` || len(sym.Methods) != 1 || sym.Methods[0].Name != "expected" {
+		t.Fatalf("anonymous helper replaced the named declaration: %+v", sym)
+	}
+}
+
+func TestReadString_AnonymousOnlyIsNotNamedDeclaration(t *testing.T) {
+	for _, src := range []string{
+		`<?php $helper = new class {};`,
+		`<?php $helper = new class extends Base {};`,
+		`<?php $helper = new class implements Runnable {};`,
+	} {
+		if sym, err := ReadString(src, "helper.php"); err == nil {
+			t.Fatalf("anonymous class must not invent a FQCN: %+v", sym)
+		}
+	}
+}
+
 func TestReadString_AliasedUse(t *testing.T) {
 	src := `<?php
 namespace App;

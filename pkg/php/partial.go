@@ -23,7 +23,15 @@ var (
 // the AST path's job. Names are as-written (not `use`-resolved). Returns nil
 // if no class-like keyword is present.
 func extractPartial(src []byte, virtualPath string) *Symbol {
-	m := rePartialClassDecl.FindSubmatch(src)
+	var m [][]byte
+	for _, candidate := range rePartialClassDecl.FindAllSubmatch(src, -1) {
+		// Anonymous `new class extends/implements ...` has no type name.
+		name := strings.ToLower(string(candidate[2]))
+		if name != "extends" && name != "implements" {
+			m = candidate
+			break
+		}
+	}
 	if m == nil {
 		return nil
 	}

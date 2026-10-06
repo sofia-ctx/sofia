@@ -124,7 +124,7 @@ type Param struct {
 	Type string
 }
 
-// Read parses path and returns the first type declaration.
+// Read parses path and returns the first named type declaration.
 // Returns an error if no such declaration exists, or if the file cannot
 // be parsed.
 func Read(path string) (*Symbol, error) {
@@ -255,7 +255,7 @@ func (e *extractor) StmtUseDeclaration(n *ast.StmtUse) {
 }
 
 func (e *extractor) StmtClass(n *ast.StmtClass) {
-	if e.sym != nil {
+	if e.sym != nil || identifierValue(n.Name) == "" {
 		return
 	}
 	sym := &Symbol{
