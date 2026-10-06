@@ -140,7 +140,7 @@ func Run(opts Options, w io.Writer) error {
 	below := rawBelow()
 
 	if len(opts.Symbols) > 0 {
-		found, rawN, rawTok, err := runSlices(cw, opts.Inputs[0], opts.Symbols, below)
+		found, rawN, rawTok, err := runSlices(cw, opts.Inputs[0], opts.Symbols)
 		tracker.SetSummary(map[string]any{
 			"file":    filepath.Base(opts.Inputs[0]),
 			"symbols": len(opts.Symbols),
@@ -215,8 +215,9 @@ func keyParts(opts Options) []string {
 }
 
 // defaultRawBelow is the raw-passthrough floor: a file smaller than this
-// is returned raw (behind a one-line marker header) instead of summarised
-// or sliced. Numerically the same measured floor as the Read-hook's
+// is returned raw (behind a one-line marker header) instead of summarised.
+// Explicit symbol requests always slice, regardless of this floor.
+// Numerically the same measured floor as the Read-hook's
 // defaultMinBytes (internal/common/hook) — the project's own A/B showed a
 // structural round-trip losing to a plain read below ≈8 KB — but kept a
 // separate constant on purpose: the hook gates other tools' Reads, this
@@ -239,11 +240,9 @@ func rawBelow() int64 {
 // a one-line marker header, so the agent sees WHY there is no structure
 // without paying for one. For --format json the marker becomes an object
 // with an explicit raw flag (a bare content dump inside a JSON stream would
-// be indistinguishable from a broken summary). symbols, when non-empty,
-// marks slice mode: the header notes the requested symbols ride along in
-// the full file.
-func passthroughBlock(path string, raw []byte, format string, below int64, symbols []string) []byte {
-	note := fmt.Sprintf("%s < %s — %s", sizeK(int64(len(raw))), sizeK(below), rawReason(symbols))
+// be indistinguishable from a broken summary).
+func passthroughBlock(path string, raw []byte, format string, below int64) []byte {
+	note := fmt.Sprintf("%s < %s — full file is cheaper than structure", sizeK(int64(len(raw))), sizeK(below))
 	if format == "json" {
 		return rawFileJSON(path, note, raw)
 	}
@@ -251,13 +250,6 @@ func passthroughBlock(path string, raw []byte, format string, below int64, symbo
 	fmt.Fprintf(&b, "# raw: %s (%s)\n", path, note)
 	b.Write(raw)
 	return b.Bytes()
-}
-
-func rawReason(symbols []string) string {
-	if len(symbols) > 0 {
-		return "full file (includes " + strings.Join(symbols, ", ") + ")"
-	}
-	return "full file is cheaper than structure"
 }
 
 // rawFile is the JSON shape of a passthrough block: the raw marker plus the
@@ -482,14 +474,11 @@ func walkSupported(dir string) ([]string, error) {
 // same error on a miss) — this is the multi-symbol generalisation of the
 // original single-symbol slice, not a parallel code path.
 //
-// Below the passthrough threshold the file isn't sliced at all: slicing a
-// tiny file is pure ceremony, so the whole raw file comes back with a
-// header noting the requested symbols are included in full. rawN reports
-// that (0 or 1) for call-log accounting; found then counts the symbols as
-// delivered-by-containment — nothing was parsed to verify them, which is
-// the point. rawTok is the estimated token cost of the raw file, for the
-// cost footer.
-func runSlices(w io.Writer, path string, symbols []string, below int64) (found, rawN int, rawTok int64, err error) {
+// Explicit symbol requests are parsed even below the summary passthrough
+// floor, so missing names are validated and unrelated bodies are omitted.
+// rawN is zero: the summary floor does not apply to slices. rawTok is the
+// estimated token cost of the raw file, for the footer and call-log tok_raw.
+func runSlices(w io.Writer, path string, symbols []string) (found, rawN int, rawTok int64, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("cannot read %s", path)
@@ -497,13 +486,7 @@ func runSlices(w io.Writer, path string, symbols []string, below int64) (found, 
 	rawTok = tokens.Estimate(string(raw))
 	be, _ := backendFor(path)
 	if be.slice == nil {
-		return 0, 0, rawTok, fmt.Errorf("symbol slice supports Go (.go) and PHP (.php), not %s", path)
-	}
-	if below > 0 && int64(len(raw)) < below {
-		// Slice output ignores opts.Format today (it is always plain
-		// source); the passthrough header follows suit.
-		_, _ = w.Write(passthroughBlock(path, raw, "", below, symbols))
-		return len(symbols), 1, rawTok, nil
+		return 0, 0, rawTok, fmt.Errorf("symbol slice supports Go (.go), PHP (.php) and Python (.py), not %s", path)
 	}
 
 	multi := len(symbols) > 1
@@ -608,7 +591,7 @@ func renderOne(path, format string, exported, api, brief bool, below int64) rend
 	raw, _ := os.ReadFile(path)
 	rt := tokens.Estimate(string(raw))
 	if raw != nil && !api && below > 0 && int64(len(raw)) < below {
-		return rendered{out: passthroughBlock(path, raw, format, below, nil), raw: true, rawTok: rt}
+		return rendered{out: passthroughBlock(path, raw, format, below), raw: true, rawTok: rt}
 	}
 	be, _ := backendFor(path)
 

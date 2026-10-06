@@ -18,7 +18,7 @@ func writeTmp(t *testing.T, name, content string) string {
 }
 
 // structuralOnly pins the raw passthrough off (SOFIA_CODE_RAW_BELOW=0) for
-// tests that exercise the summariser/slicer on deliberately tiny fixtures —
+// tests that exercise the summariser on deliberately tiny fixtures —
 // with the default threshold those files would come back raw before the
 // machinery under test ever ran. The passthrough itself is covered in
 // passthrough_test.go.
@@ -117,12 +117,38 @@ func TestSliceUnsupportedLang(t *testing.T) {
 			var buf bytes.Buffer
 			err := Run(Options{Inputs: []string{p}, Symbols: tt.symbols}, &buf)
 			if err == nil {
-				t.Fatal("slice on .vue should error (Go/PHP only)")
+				t.Fatal("slice on .vue should error")
 			}
-			if !strings.Contains(err.Error(), "Go (.go) and PHP (.php)") {
-				t.Errorf("want a Go/PHP-only error, got %v", err)
+			if !strings.Contains(err.Error(), "Go (.go), PHP (.php) and Python (.py)") {
+				t.Errorf("want the supported slice languages, got %v", err)
 			}
 		})
+	}
+}
+
+func TestSmallPHPMultipleMethods(t *testing.T) {
+	t.Setenv("SOFIA_CODE_RAW_BELOW", "")
+	src := `<?php
+class Prices {
+    public function get(int $id): int { /* Discounted total. */ return $id * $this->getDiscount(); }
+    public function getDiscount(): int { return 2; }
+    public function unrelated(): string { return 'unrelated data and logic that must not appear in a method slice'; }
+    public function another(): string { return 'another unrelated method with enough body to keep the requested slice cheaper'; }
+}
+`
+	p := writeTmp(t, "prices.php", src)
+	var buf bytes.Buffer
+	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"get", "getDiscount"}}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Discounted total.", "function get(int $id): int", "return $id * $this->getDiscount();", "function getDiscount(): int", "return 2;"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("requested PHP source missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "function unrelated") || strings.Contains(out, "function another") || strings.Contains(out, "# raw:") {
+		t.Errorf("small-file slice returned unrelated source:\n%s", out)
 	}
 }
 

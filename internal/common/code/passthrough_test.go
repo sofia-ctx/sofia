@@ -97,24 +97,24 @@ func TestPassthroughMixedBatch(t *testing.T) {
 	}
 }
 
-// TestPassthroughSlice: slicing symbols out of a below-threshold file is
-// pure ceremony — the whole raw file comes back, the header naming the
-// requested symbols as included in full.
-func TestPassthroughSlice(t *testing.T) {
+// Explicit symbols bypass the summary floor and validate missing names.
+func TestSmallFileSlice(t *testing.T) {
+	t.Setenv("SOFIA_CODE_RAW_BELOW", "")
 	p := writeTmp(t, "tiny.go", smallGoSrc)
 	var buf bytes.Buffer
-	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"Hello", "Goodbye"}}, &buf); err != nil {
+	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"Hello"}}, &buf); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "# raw: "+p+" (") {
-		t.Errorf("missing passthrough header:\n%s", out)
+	if !strings.Contains(out, `func Hello() string { return "hi" }`) || strings.Contains(out, "Goodbye") || strings.Contains(out, "# raw:") {
+		t.Errorf("expected only the requested function:\n%s", out)
 	}
-	if !strings.Contains(out, "full file (includes Hello, Goodbye)") {
-		t.Errorf("header should name the requested symbols:\n%s", out)
+	buf.Reset()
+	if err := Run(Options{Inputs: []string{p}, Symbols: []string{"Missing"}}, &buf); err == nil || !strings.Contains(err.Error(), "available:") {
+		t.Fatalf("expected missing-symbol error with available names, got %v", err)
 	}
-	if !strings.Contains(out, smallGoSrc) {
-		t.Errorf("passthrough must carry the complete raw file:\n%s", out)
+	if buf.Len() != 0 {
+		t.Errorf("missing symbol must not return the small file:\n%s", buf.String())
 	}
 }
 
