@@ -18,7 +18,6 @@ import (
 
 	"github.com/sofia-ctx/sofia/internal/calllog"
 	"github.com/sofia-ctx/sofia/pkg/codectx"
-	"github.com/sofia-ctx/sofia/pkg/emit"
 	"github.com/sofia-ctx/sofia/pkg/matcher"
 	"github.com/sofia-ctx/sofia/pkg/tokens"
 	"github.com/sofia-ctx/sofia/pkg/walker"
@@ -35,6 +34,7 @@ type Options struct {
 	ExtraIgnore   []string // extra directory names to skip in addition to defaults
 	MaxPerPattern int      // 0 = unlimited
 	MaxTotal      int      // 0 = unlimited; CLI defaults to 60
+	MaxBytes      int      // 0 = unlimited; CLI defaults to 16 KiB
 	Offset        int      // offset in the per-pattern capped result
 }
 
@@ -93,6 +93,11 @@ func Scan(opts Options) (*Result, error) {
 // Run executes the scan and renders the result to w.
 func Run(opts Options, w io.Writer) error {
 	tracker := calllog.Start("grep", append([]string{"--format=" + opts.Format}, opts.Patterns...))
+	if opts.MaxBytes < 0 || (opts.MaxBytes > 0 && opts.MaxBytes < minMaxBytes) {
+		err := fmt.Errorf("max-bytes must be 0 (unlimited) or at least %d", minMaxBytes)
+		tracker.Finish(err)
+		return err
+	}
 	if opts.MaxTotal < 0 || opts.Offset < 0 || opts.MaxPerPattern < 0 {
 		err := fmt.Errorf("search limits and offset must be nonnegative (0 limit = unlimited)")
 		tracker.Finish(err)
@@ -119,30 +124,23 @@ func Run(opts Options, w io.Writer) error {
 		return err
 	}
 	stats := summary(opts, result)
-	result = outputPage(result, opts)
+	output, result, renderErr := boundedOutput(result, opts)
 	stats["inputs"] = opts.Patterns
 	stats["shown"] = result.Page.Shown
 	stats["truncated"] = result.Page.Truncated
 	stats["offset"] = opts.Offset
 	stats["max_total"] = opts.MaxTotal
+	stats["max_bytes"] = opts.MaxBytes
+	stats["byte_limited"] = result.Page.ByteLimited
+	if renderErr != nil {
+		stats["shown"] = 0
+		stats["truncated"] = result.Page.Total
+	}
 	tracker.SetSummary(stats)
 
 	cw := &calllog.Counter{W: w}
-	var renderErr error
-	switch opts.Format {
-	case "", "toon":
-		renderTOON(cw, result, 0)
-	case "md":
-		renderMarkdown(cw, result, 0)
-	case "json":
-		renderErr = renderJSON(cw, result)
-	default:
-		renderErr = fmt.Errorf("unknown format %q (use toon|md|json)", opts.Format)
-	}
-	if renderErr == nil {
-		// No single raw baseline to compare a tree search against — the
-		// footer reports this call's own cost only.
-		emit.FooterFor(cw, opts.Format, cw.Tokens, 0)
+	if _, err := cw.Write(output); err != nil {
+		renderErr = errors.Join(renderErr, err)
 	}
 	tracker.RecordOutput(cw)
 	tracker.Finish(renderErr)

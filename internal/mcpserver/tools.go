@@ -43,6 +43,9 @@ type grepInput struct {
 	Exts          []string `json:"exts,omitempty" jsonschema:"file extensions to include, e.g. [\"php\",\"ts\",\"vue\"]; empty = all"`
 	IgnoreDirs    []string `json:"ignore_dirs,omitempty" jsonschema:"extra directory names to skip on top of the defaults (vendor, node_modules, …)"`
 	MaxPerPattern *int     `json:"max_per_pattern,omitempty" jsonschema:"limit hits per pattern (0 = unlimited; default 30)"`
+	MaxTotal      *int     `json:"max_total,omitempty" jsonschema:"limit hits across all patterns (0 = unlimited; default 60)"`
+	MaxBytes      *int     `json:"max_bytes,omitempty" jsonschema:"maximum output bytes including footer (0 = unlimited; otherwise at least 512; default 16384)"`
+	Offset        int      `json:"offset,omitempty" jsonschema:"hit offset in the per-pattern capped results; follow page.next_offset"`
 }
 
 type refsInput struct {
@@ -169,6 +172,9 @@ func registerTools(s *mcp.Server) {
 			Exts:          in.Exts,
 			ExtraIgnore:   in.IgnoreDirs,
 			MaxPerPattern: orInt(in.MaxPerPattern, 30),
+			MaxTotal:      orInt(in.MaxTotal, 60),
+			MaxBytes:      orInt(in.MaxBytes, grep.DefaultMaxBytes),
+			Offset:        in.Offset,
 			Format:        jsonFormat,
 		}
 		if opts.Regex {

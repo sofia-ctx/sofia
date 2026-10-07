@@ -8,12 +8,13 @@ import (
 // Page describes a stable window after applying per-pattern limits. Total
 // still counts every match; Eligible excludes those omitted by those limits.
 type Page struct {
-	Total      int  `json:"total"`
-	Eligible   int  `json:"eligible"`
-	Shown      int  `json:"shown"`
-	Truncated  int  `json:"truncated"`
-	Offset     int  `json:"offset"`
-	NextOffset *int `json:"next_offset,omitempty"`
+	Total       int  `json:"total"`
+	Eligible    int  `json:"eligible"`
+	Shown       int  `json:"shown"`
+	Truncated   int  `json:"truncated"`
+	Offset      int  `json:"offset"`
+	NextOffset  *int `json:"next_offset,omitempty"`
+	ByteLimited bool `json:"byte_limited,omitempty"`
 }
 
 func outputPage(r *Result, opts Options) *Result {
@@ -57,6 +58,9 @@ func writePage(w io.Writer, p *Page) {
 	fmt.Fprintf(w, "page{total=%d,eligible=%d,shown=%d,truncated=%d,offset=%d}", p.Total, p.Eligible, p.Shown, p.Truncated, p.Offset)
 	if p.NextOffset != nil {
 		fmt.Fprintf(w, " next: --offset %d", *p.NextOffset)
+	}
+	if p.ByteLimited {
+		fmt.Fprint(w, " byte_limited=true")
 	}
 	fmt.Fprintln(w)
 }

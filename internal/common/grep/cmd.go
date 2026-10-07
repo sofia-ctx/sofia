@@ -34,6 +34,10 @@ node_modules/, var/, .git/ and friends.
 
 Output is capped at 30 hits per pattern (a "# +N more truncated" line marks
 the rest); pass --max-per-pattern 0 for every hit, or a higher number.
+All formats also default to 60 total hits and 16384 rendered bytes including
+the footer. --max-bytes 0 disables the byte cap; otherwise the minimum is
+512. Follow page.next_offset with --offset. Oversized individual results
+return an error with required_bytes; retry the same offset with that limit.
 
 A pattern that starts with "-" (e.g. "->method") looks like a flag; put "--"
 first so it's read as a pattern: sf grep -- "->method".`,
@@ -49,6 +53,7 @@ first so it's read as a pattern: sf grep -- "->method".`,
 	cmd.Flags().StringVar(&ignoreFlag, "ignore-dir", "", "comma-separated extra directory names to skip")
 	cmd.Flags().IntVar(&opts.MaxPerPattern, "max-per-pattern", 30, "limit hits per pattern (0 = unlimited)")
 	cmd.Flags().IntVar(&opts.MaxTotal, "max-total", 60, "limit hits across all patterns, in every format (0 = unlimited)")
+	cmd.Flags().IntVar(&opts.MaxBytes, "max-bytes", DefaultMaxBytes, "maximum UTF-8 stdout bytes including footer (0 = unlimited; otherwise at least 512)")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip hits in the per-pattern capped result; use page.next_offset to continue")
 	cliflags.AttachFormatFlags(cmd, &opts.Format)
 
