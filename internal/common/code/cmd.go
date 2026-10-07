@@ -52,9 +52,13 @@ names and signatures, for when the map covers many files. Expansion caps at
 250 files — narrow the path if you hit that.
 
 Or pass one file and one or more symbol names to slice their full source
-(signature + body) instead of the whole file — Go, PHP, and Python; match a
+(signature + body) instead of the whole file — Go, PHP, Python, TS/JS/Vue; match a
 func/type/const/var by name, or a method by name or Recv.Method /
-Class::method / Class.method (Python). A requested symbol that isn't found doesn't fail the whole
+Class::method / Class.method (Python, TS/JS). TS/JS also accepts object.member
+for named object literals. Vue searches both inline script blocks, excluding
+template/style. Script slicing is lexical, not a type checker; JSX bodies
+and external Vue scripts are unsupported and produce an explicit error.
+A requested symbol that isn't found doesn't fail the whole
 call: whatever's found still comes back, with a comment marking what's
 missing (and the available names) — unless NONE of the requested symbols
 exist, which errors. Symbol slicing needs a single real file, not a
@@ -68,6 +72,8 @@ directory or glob.
   sf code internal/server/server.go Server.Routes   # slice one method
   sf code internal/cc/cc.go Parse ingestEntry        # slice several symbols at once
   sf code src/Sales/Entity/Task.php complete         # slice one PHP method
+  sf code frontend/Track.ts FleetTrack.draw calcT    # TS method and function
+  sf code frontend/Editor.vue save                  # inline Vue script binding
   sf code internal/server/server.go --json`,
 		Args:         cliflags.MinArgs(1, "code needs a file; try: sf code <file> [symbol...]"),
 		SilenceUsage: true,

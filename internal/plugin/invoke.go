@@ -70,9 +70,12 @@ func Invoke(ctx context.Context, req InvokeRequest) error {
 		logArgs = nil
 	}
 	tracker := calllog.Start(toolName(d, req.Command), append([]string(nil), logArgs...))
+	tracker.SetPluginVersion(d.Manifest.Version)
+	metadata := summaryFile(req.Command)
 	counter := &calllog.Counter{W: req.Stdout}
 	var runErr error
 	defer func() {
+		collectSummary(metadata, tracker)
 		tracker.RecordOutput(counter)
 		tracker.Finish(runErr)
 	}()
@@ -90,6 +93,11 @@ func Invoke(ctx context.Context, req InvokeRequest) error {
 
 	c := exec.CommandContext(ctx, d.Exec, argv...)
 	c.Env = childEnv(d, settings)
+	// Override an inherited path even when logging is suppressed.
+	c.Env = append(c.Env, summaryEnv+"=")
+	if metadata != nil {
+		c.Env = append(c.Env, summaryEnv+"="+metadata.Name())
+	}
 	c.Stdout = counter
 	stderr := &byteCounter{W: req.Stderr}
 	c.Stderr = stderr

@@ -72,6 +72,7 @@ func TestBeginDisabledWithoutSession(t *testing.T) {
 	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("SOFIA_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "")
 	t.Setenv("SOFIA_DEDUP_WINDOW", "180")
 
 	g := Begin("code", false, "x=1")

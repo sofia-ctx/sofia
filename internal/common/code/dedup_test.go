@@ -148,6 +148,7 @@ func TestCodeJSONStubShape(t *testing.T) {
 }
 
 func TestCodeNoSessionNoStub(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "")
 	t.Setenv("SOFIA_LOG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("SOFIA_SESSION_ID", "")

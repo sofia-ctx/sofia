@@ -69,11 +69,13 @@ func logLines(t *testing.T, dir string) []calllogEntry {
 
 // calllogEntry mirrors the fields of calllog.Entry the tests assert on.
 type calllogEntry struct {
-	Tool       string `json:"tool"`
-	Args       []string
-	ExitCode   int    `json:"exit"`
-	Error      string `json:"err"`
-	OutputByte int64  `json:"out_bytes"`
+	Summary       map[string]any `json:"summary"`
+	PluginVersion string         `json:"plugin_version"`
+	Tool          string         `json:"tool"`
+	Args          []string
+	ExitCode      int    `json:"exit"`
+	Error         string `json:"err"`
+	OutputByte    int64  `json:"out_bytes"`
 }
 
 func TestInvoke_GreetStdoutEnvAndOneLogLine(t *testing.T) {

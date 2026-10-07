@@ -15,6 +15,7 @@ package code
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,8 +66,10 @@ func backendFor(path string) (backend, bool) {
 		return backend{summarize: phpcode.Summarize, slice: phpcode.Slice}, true
 	case strings.HasSuffix(path, ".py"):
 		return backend{summarize: pycode.Summarize, slice: pycode.Slice}, true
+	case strings.HasSuffix(path, ".vue"):
+		return backend{summarize: tscode.Summarize, slice: tscode.SliceVue}, true
 	case hasSuffixAny(path, scriptExts...):
-		return backend{summarize: tscode.Summarize}, true
+		return backend{summarize: tscode.Summarize, slice: tscode.Slice}, true
 	}
 	return backend{}, false
 }
@@ -99,7 +102,8 @@ const supportedExtLabel = "Go (.go), PHP (.php), Python (.py), TS/JS/Vue (.ts/.t
 // Run dispatches the requested files to their backends and writes the result.
 // Multiple files are summarised in parallel and aggregated in input order.
 func Run(opts Options, w io.Writer) error {
-	tracker := calllog.Start("code", append([]string{"--format=" + opts.Format}, opts.Inputs...))
+	args := append([]string{"--format=" + opts.Format}, opts.Inputs...)
+	tracker := calllog.Start("code", append(args, opts.Symbols...))
 	cw := &calllog.Counter{W: w}
 
 	if err := validate(opts); err != nil {
@@ -142,10 +146,13 @@ func Run(opts Options, w io.Writer) error {
 	if len(opts.Symbols) > 0 {
 		found, rawN, rawTok, err := runSlices(cw, opts.Inputs[0], opts.Symbols)
 		tracker.SetSummary(map[string]any{
-			"file":    filepath.Base(opts.Inputs[0]),
-			"symbols": len(opts.Symbols),
-			"found":   found,
-			"raw":     rawN,
+			"inputs":            opts.Inputs,
+			"requested_symbols": opts.Symbols,
+			"format":            opts.Format,
+			"file":              filepath.Base(opts.Inputs[0]),
+			"symbols":           len(opts.Symbols),
+			"found":             found,
+			"raw":               rawN,
 			// tok_raw: the whole-file estimate this slice was measured
 			// against — the quota report's savings baseline (see `sf cc
 			// value --quota`), not persisted until now (gap #1).
@@ -162,25 +169,32 @@ func Run(opts Options, w io.Writer) error {
 
 	blocks := renderAll(opts, below)
 	rawN, rawTok := 0, int64(0)
+	var failures []error
 	for i, b := range blocks {
 		if i > 0 {
 			_, _ = cw.Write([]byte("\n"))
 		}
 		_, _ = cw.Write(b.out)
+		if b.err != nil {
+			failures = append(failures, b.err)
+		}
 		if b.raw {
 			rawN++
 		}
 		rawTok += b.rawTok
 	}
 	emit.FooterFor(cw, opts.Format, cw.Tokens, rawTok)
-	g.CommitFull(cw.Tokens)
+	if len(failures) == 0 {
+		g.CommitFull(cw.Tokens)
+	}
 	// tok_raw: the combined raw-file estimate the footer already compared
 	// against — recorded here so it survives past the process (gap #1: the
 	// footer prints it but the log never kept it).
-	tracker.SetSummary(map[string]any{"files": len(opts.Inputs), "raw": rawN, "tok_raw": rawTok})
+	tracker.SetSummary(map[string]any{"inputs": opts.Inputs, "format": opts.Format, "files": len(opts.Inputs), "failed": len(failures), "raw": rawN, "tok_raw": rawTok})
 	tracker.RecordOutput(cw)
-	tracker.Finish(nil)
-	return nil
+	err := errors.Join(failures...)
+	tracker.Finish(err)
+	return err
 }
 
 // keyParts builds the dedup key for one `sf code` call: the working
@@ -555,6 +569,7 @@ func notFoundComment(symbol string, available []string) string {
 // how it was produced.
 type rendered struct {
 	out    []byte
+	err    error
 	raw    bool  // below-threshold passthrough (not the compact-or-raw fallback)
 	rawTok int64 // estimated token cost of the raw file, for the cost footer
 }
@@ -588,7 +603,17 @@ func renderAll(opts Options, below int64) []rendered {
 // exempt for the same reason it skips the size guard below: its output
 // includes trait/parent methods the raw file doesn't contain.
 func renderOne(path, format string, exported, api, brief bool, below int64) rendered {
-	raw, _ := os.ReadFile(path)
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil {
+		var out []byte
+		if format == "json" {
+			out, _ = json.Marshal(map[string]string{"file": path, "error": readErr.Error()})
+			out = append(out, '\n')
+		} else {
+			out = []byte(fmt.Sprintf("file: %s\n# %v\n", filepath.Base(path), readErr))
+		}
+		return rendered{out: out, err: readErr}
+	}
 	rt := tokens.Estimate(string(raw))
 	if raw != nil && !api && below > 0 && int64(len(raw)) < below {
 		return rendered{out: passthroughBlock(path, raw, format, below), raw: true, rawTok: rt}

@@ -104,7 +104,7 @@ func TestSliceNotFoundListsAvailable(t *testing.T) {
 	}
 }
 
-func TestSliceUnsupportedLang(t *testing.T) {
+func TestSliceVueWithoutScript(t *testing.T) {
 	p := writeTmp(t, "x.vue", "<template><div/></template>\n")
 	for _, tt := range []struct {
 		name    string
@@ -119,8 +119,30 @@ func TestSliceUnsupportedLang(t *testing.T) {
 			if err == nil {
 				t.Fatal("slice on .vue should error")
 			}
-			if !strings.Contains(err.Error(), "Go (.go), PHP (.php) and Python (.py)") {
-				t.Errorf("want the supported slice languages, got %v", err)
+			if !strings.Contains(err.Error(), "not found") && !strings.Contains(err.Error(), "none of the requested") {
+				t.Errorf("want a missing-symbol error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSmallScriptSymbolsUseSlices(t *testing.T) {
+	t.Setenv("SOFIA_CODE_RAW_BELOW", "")
+	t.Setenv("SOFIA_FOOTER", "off")
+	for _, ext := range []string{"ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "vue"} {
+		t.Run(ext, func(t *testing.T) {
+			src := "function first() { return 1; }\nconst second = () => 2;\nfunction unrelated() { return 'Do not include this unrequested body in the result'; }\n"
+			if ext == "vue" {
+				src = "<script setup lang=\"ts\">\n" + src + "</script><template><div/></template>"
+			}
+			p := writeTmp(t, "small."+ext, src)
+			var output bytes.Buffer
+			if err := Run(Options{Inputs: []string{p}, Symbols: []string{"second", "first"}}, &output); err != nil {
+				t.Fatal(err)
+			}
+			got := output.String()
+			if strings.Contains(got, "unrelated") || !strings.Contains(got, "return 1;") || strings.Index(got, "const second") > strings.Index(got, "function first") {
+				t.Fatalf("bad slice: %s", got)
 			}
 		})
 	}

@@ -34,6 +34,8 @@ type Options struct {
 	Exts          []string // file extensions to include (".php" etc.); empty = all
 	ExtraIgnore   []string // extra directory names to skip in addition to defaults
 	MaxPerPattern int      // 0 = unlimited
+	MaxTotal      int      // 0 = unlimited; CLI defaults to 60
+	Offset        int      // offset in the per-pattern capped result
 }
 
 type Hit struct {
@@ -45,15 +47,19 @@ type Hit struct {
 }
 
 type PatternResult struct {
-	Pattern string `json:"pattern"`
-	Files   int    `json:"files"`
-	Hits    []Hit  `json:"hits"`
+	Pattern   string `json:"pattern"`
+	Files     int    `json:"files"`
+	Hits      []Hit  `json:"hits"`
+	Total     int    `json:"total"`
+	Shown     int    `json:"shown"`
+	Truncated int    `json:"truncated"`
 }
 
 type Result struct {
 	Patterns []*PatternResult `json:"patterns"`
 	Empty    []string         `json:"empty,omitempty"`
 	Skipped  int              `json:"skipped,omitempty"` // files skipped: binary or over-long lines
+	Page     *Page            `json:"page,omitempty"`
 }
 
 // DefaultIgnoreDirs are the directories every project's grep should skip
@@ -87,6 +93,11 @@ func Scan(opts Options) (*Result, error) {
 // Run executes the scan and renders the result to w.
 func Run(opts Options, w io.Writer) error {
 	tracker := calllog.Start("grep", append([]string{"--format=" + opts.Format}, opts.Patterns...))
+	if opts.MaxTotal < 0 || opts.Offset < 0 || opts.MaxPerPattern < 0 {
+		err := fmt.Errorf("search limits and offset must be nonnegative (0 limit = unlimited)")
+		tracker.Finish(err)
+		return err
+	}
 	if len(opts.Patterns) == 0 {
 		err := fmt.Errorf("no patterns to search")
 		tracker.Finish(err)
@@ -107,15 +118,22 @@ func Run(opts Options, w io.Writer) error {
 		tracker.Finish(err)
 		return err
 	}
-	tracker.SetSummary(summary(opts, result))
+	stats := summary(opts, result)
+	result = outputPage(result, opts)
+	stats["inputs"] = opts.Patterns
+	stats["shown"] = result.Page.Shown
+	stats["truncated"] = result.Page.Truncated
+	stats["offset"] = opts.Offset
+	stats["max_total"] = opts.MaxTotal
+	tracker.SetSummary(stats)
 
 	cw := &calllog.Counter{W: w}
 	var renderErr error
 	switch opts.Format {
 	case "", "toon":
-		renderTOON(cw, result, opts.MaxPerPattern)
+		renderTOON(cw, result, 0)
 	case "md":
-		renderMarkdown(cw, result, opts.MaxPerPattern)
+		renderMarkdown(cw, result, 0)
 	case "json":
 		renderErr = renderJSON(cw, result)
 	default:

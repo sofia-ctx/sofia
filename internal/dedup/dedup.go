@@ -103,6 +103,11 @@ type Guard struct {
 // second call stubbed. Tests that want to exercise dedup set
 // SOFIA_DEDUP_WINDOW explicitly, which lifts this guard.
 func beginDisabled() bool {
+	// A Codex thread survives compaction; telemetry identity alone does not
+	// prove the previous response is still in context. Dedup is opt-in there.
+	if os.Getenv("CODEX_THREAD_ID") != "" && os.Getenv("SOFIA_DEDUP_WINDOW") == "" {
+		return true
+	}
 	if calllog.SessionID() == "" {
 		return true
 	}

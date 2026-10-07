@@ -105,6 +105,8 @@ Flags: `--regex` (Go regexp), `--ext php,ts,vue`, `--ignore-dir extra,paths`,
 common `--md`/`--json` aliases. Default ignores: `vendor`, `node_modules`,
 `var`, `.git`, `dist`, `build`, `target`, `__pycache__`, IDE directories.
 
+Search limits apply to TOON, Markdown and JSON alike: 30 hits per pattern and 60 hits across the whole response (`--max-total`). `--offset` continues the stable result after per-pattern caps; `page.next_offset` gives the next offset. `total` counts all matches, `eligible` counts those within per-pattern caps, `shown` counts this page and `truncated` is `total - shown`. Use `--max-per-pattern 0 --max-total 0` for all results. These are hit limits, not a token or byte ceiling; long JSON strings can still be large.
+
 ### `sf refs` — who defines/uses a symbol, with enclosing context
 
 `sf refs <symbol>` answers "who defines/uses this symbol across the tree,
@@ -156,15 +158,17 @@ libraries under `internal/common/code/{gocode,phpcode,pycode,tscode}` (each test
 in isolation), runs multiple files **in parallel**, and aggregates the
 result. Pass a list of files: `sf code a.go b.php api/types.ts`. Or
 `<file> <symbol...>` to **slice** one or more symbols (the source of each
-function/method/type; Go, PHP, and Python) instead of the whole file — a symbol that
+function/method/type; Go, PHP, Python, TS/JS/Vue) instead of the whole file — a symbol that
 isn't found doesn't fail the others, it's just noted as missing. Invariant:
 **compact-or-raw** — if a file can't be parsed, or the summary isn't
 shorter, the full file is returned (== `cat`), never an error, so `sf code`
-is safe to run on anything.
+preserves readable content on parser failures. A missing or unreadable file is an error: other files in a batch remain visible, but the command exits nonzero and the failure is recorded in history.
 
 For structural summaries below **8 KB**, the raw file comes back behind a one-line `# raw: …` header (per file inside a batch). The project's own A/B measured structural round-trips losing to a plain read on small files. `SOFIA_CODE_RAW_BELOW=<bytes>` moves this summary threshold; `0` disables the passthrough.
 
 Explicit symbol requests always parse and slice, including files below 8 KB: `sf code small.php get getDiscount` returns the requested method bodies and reports missing names. The combined slice still falls back to the raw file when it would be larger than the original. The summary threshold does not affect symbol validation.
+
+TS/JS slices preserve source text and adjacent JSDoc for top-level functions, simple named bindings, classes/types, class members (`Class.method`) and direct members of named object literals (`API.load`). Bare member names work when unique; an exact top-level name takes precedence. Overload signatures and accessor pairs are returned together. Vue slices search both inline `<script>` and `<script setup>` blocks without including template/style markup; duplicate names across the blocks are ambiguous. The extractor tracks lexical delimiters, comments, strings, regexes and template interpolation; it is not a TypeScript parser/type checker. JSX bodies, external Vue scripts and unsupported script languages return errors. Nested local bindings, destructuring names and arbitrary object/call expressions are not indexed. Node.js is not required to run sf.
 
 Every `code`/`grep`/`refs`/`changed` call ends with a one-line cost footer — e.g.
 `# sf ≈612 tok · raw ≈3120 · saved ≈2508` — so the per-call token economics
@@ -189,6 +193,8 @@ sf code src/User/Entity/User.php --exported    # public API only
 sf code vendor/acme/lib/src/FluentThing.php --api  # the full surface: traits+inheritance
 sf code internal/server/server.go Server.Routes  # slice of a single method
 sf code internal/cc/cc.go Parse ingestEntry      # slice several symbols at once
+sf code frontend/Track.ts FleetTrack.draw calcT # TS method and function
+sf code frontend/Editor.vue save                # inline Vue script binding
 ```
 
 Measured: Go **6–23×**, PHP **2–20×** (`--api` over traits/inheritance
@@ -529,8 +535,9 @@ A session selector resolves everywhere the same way as an xref lookup:
 
 ### Output format
 
-Every tool defaults to **TOON** (Token-Oriented Object Notation) — a compact
-format built for LLM tokens. The same aliases work across every tool:
+Structural readers and search tools normally default to **TOON** for agent-facing tables. This is not a universal format: code slices and small-file fallbacks return source, diagnostics use text, and plugins define their own contracts (for example JSON database rows or Extended JSON documents). Use JSON when another program must parse the result. A short plain-text lookup can be cheaper than a table; TOON is not automatically the smallest encoding.
+
+Tools supporting the common format flags accept these aliases:
 
 ```bash
 sf grep --md   TODO   # equivalent to --format=md
@@ -578,11 +585,13 @@ file, so `sf history` aggregates the full picture. Every entry is tagged
 with a `source` — `agent` (how Claude invokes it; detected via
 `CLAUDECODE=1` in the Bash tool's environment), `manual` (typed by hand in a
 terminal), or `test` (`go test` runs never write to the shared log at all).
-Entries also carry `sid` — Claude's session id
-(`CLAUDE_CODE_SESSION_ID`, matches the transcript filename → joins with
-`sf cc`) — and `tag` — the project (`SOFIA_TAG`, or the basename of the git
+Entries also carry `sid`, resolved from `CLAUDE_CODE_SESSION_ID`, explicit `SOFIA_SESSION_ID`, or Codex's `CODEX_THREAD_ID` — and `tag` — the project (`SOFIA_TAG`, or the basename of the git
 root otherwise). Parallel sessions don't interfere with each other: the env
 is inherited down the process tree, and log writes are atomic.
+
+Use `SOFIA_SOURCE=benchmark` with a separate `SOFIA_LOG_DIR` for CLI acceptance/format measurements; `--source agent` alone cannot distinguish such checks from real work. `build` records the host build revision and dirty state; `plugin_version` records the plugin manifest version. Participating plugins provide a bounded optional summary without duplicating the history entry. Sensitive commands with `log_args: false` suppress that channel as well. These are produced stdout estimates, not billed tokens, post-truncation context, or end-to-end task duration.
+
+Codex thread IDs are used for attribution, not evidence that an earlier answer survived compaction. Automatic `code` dedup stubs remain off when `CODEX_THREAD_ID` is present unless `SOFIA_DEDUP_WINDOW` is explicitly set.
 
 ```bash
 sf history                                  # last 20 calls
@@ -624,9 +633,9 @@ repeated queries — candidates for caching).
 | `ts` | When it was called — time-of-day patterns |
 | `tool` | Which tool — per-tool breakdowns |
 | `source` | `agent` (Claude, via `CLAUDECODE=1`) / `manual` / `test` — separates agent traffic from manual use |
-| `sid` | Claude session id (`CLAUDE_CODE_SESSION_ID`, = transcript filename) — per-session slicing, joins with `sf cc` |
+| `sid` | Claude, explicit Sofia or Codex session ID; per-session attribution (only Claude transcripts join with `sf cc`) |
 | `tag` | Project (`SOFIA_TAG`, or basename of the git root) — adoption by project |
-| `args` | Exact arguments — for reproducing a call |
+| `args` | Command inputs; built-in tools may normalize flags. Code slices include requested symbols. |
 | `fp` | SHA-256 prefix of the sorted args — groups equivalent queries |
 | `dur_ms` | Duration — total/mean/p50/p95 |
 | `exit` | Exit code — error rate |

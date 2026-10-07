@@ -28,19 +28,21 @@ import (
 )
 
 type Entry struct {
-	Timestamp    string         `json:"ts"`
-	Tool         string         `json:"tool"`
-	Source       string         `json:"source,omitempty"` // agent | manual | test (who invoked it)
-	SessionID    string         `json:"sid,omitempty"`    // Claude Code session id (joins with `sf cc`)
-	Tag          string         `json:"tag,omitempty"`    // project the call belongs to
-	Args         []string       `json:"args"`
-	Fingerprint  string         `json:"fp,omitempty"` // sorted+joined args for grouping equivalent invocations
-	DurationMs   int64          `json:"dur_ms"`
-	ExitCode     int            `json:"exit"`
-	Error        string         `json:"err,omitempty"`
-	OutputBytes  int64          `json:"out_bytes,omitempty"`  // size of stdout payload, in bytes
-	OutputTokens int64          `json:"out_tokens,omitempty"` // approximate LLM tokens (see internal/tokens)
-	Summary      map[string]any `json:"summary,omitempty"`
+	Timestamp     string         `json:"ts"`
+	Tool          string         `json:"tool"`
+	Source        string         `json:"source,omitempty"` // agent | manual | test (who invoked it)
+	SessionID     string         `json:"sid,omitempty"`    // Claude Code session id (joins with `sf cc`)
+	Tag           string         `json:"tag,omitempty"`    // project the call belongs to
+	Args          []string       `json:"args"`
+	Fingerprint   string         `json:"fp,omitempty"` // sorted+joined args for grouping equivalent invocations
+	DurationMs    int64          `json:"dur_ms"`
+	ExitCode      int            `json:"exit"`
+	Error         string         `json:"err,omitempty"`
+	OutputBytes   int64          `json:"out_bytes,omitempty"`  // size of stdout payload, in bytes
+	OutputTokens  int64          `json:"out_tokens,omitempty"` // approximate LLM tokens (see internal/tokens)
+	Summary       map[string]any `json:"summary,omitempty"`
+	Build         string         `json:"build,omitempty"`
+	PluginVersion string         `json:"plugin_version,omitempty"`
 }
 
 // Path returns the file used for the shared JSONL log. Resolution order:
@@ -120,7 +122,7 @@ func firstNonEmpty(vals ...string) string {
 // /clear and --resume because it's read per call. SOFIA_SESSION_ID is an
 // escape hatch for non-Claude automation. Empty for hand-run terminal calls.
 func sessionID() string {
-	return firstNonEmpty(os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("SOFIA_SESSION_ID"))
+	return firstNonEmpty(os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("SOFIA_SESSION_ID"), os.Getenv("CODEX_THREAD_ID"))
 }
 
 // projectTag names the project a call belongs to. SOFIA_TAG (stamped by the
@@ -221,6 +223,7 @@ func Start(tool string, args []string) *Tracker {
 	t := &Tracker{
 		start: time.Now(),
 		entry: Entry{
+			Build:       buildIdentity(),
 			Tool:        tool,
 			Source:      detectSource(),
 			SessionID:   sessionID(),
@@ -237,6 +240,8 @@ func Start(tool string, args []string) *Tracker {
 func (t *Tracker) SetSummary(s map[string]any) {
 	t.entry.Summary = s
 }
+
+func (t *Tracker) SetPluginVersion(v string) { t.entry.PluginVersion = v }
 
 // SetOutputBytes records the size of the user-facing payload (typically
 // stdout). History can use this to spot heavy outputs that should be

@@ -221,6 +221,7 @@ func TestCallTool_CodeBriefDirInput(t *testing.T) {
 }
 
 func TestEnsureSessionEnv(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "")
 	t.Run("sets SOFIA_SESSION_ID when no session is present", func(t *testing.T) {
 		t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 		t.Setenv("SOFIA_SESSION_ID", "")

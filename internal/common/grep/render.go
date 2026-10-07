@@ -21,13 +21,13 @@ func renderJSON(w io.Writer, r *Result) error {
 func renderTOON(w io.Writer, r *Result, maxPerPattern int) {
 	for _, pr := range r.Patterns {
 		shown := pr.Hits
-		truncated := 0
+		truncated := pr.Truncated
 		if maxPerPattern > 0 && len(pr.Hits) > maxPerPattern {
 			shown = pr.Hits[:maxPerPattern]
 			truncated = len(pr.Hits) - maxPerPattern
 		}
 		fmt.Fprintf(w, "%s{files=%d,hits=%d}:\n",
-			toon.Scalar(pr.Pattern), pr.Files, len(pr.Hits))
+			toon.Scalar(pr.Pattern), pr.Files, len(pr.Hits)+pr.Truncated)
 		fmt.Fprintf(w, "%shits[%d]{%s}:\n",
 			toon.Indent, len(shown), strings.Join(hitFields, ","))
 		rowIndent := toon.Indent + toon.Indent
@@ -50,6 +50,7 @@ func renderTOON(w io.Writer, r *Result, maxPerPattern int) {
 	if r.Skipped > 0 {
 		fmt.Fprintf(w, "skipped: %d # binary or over-long lines\n", r.Skipped)
 	}
+	writePage(w, r.Page)
 }
 
 func renderMarkdown(w io.Writer, r *Result, maxPerPattern int) {
@@ -57,9 +58,9 @@ func renderMarkdown(w io.Writer, r *Result, maxPerPattern int) {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
-		fmt.Fprintf(w, "# %s    files=%d hits=%d\n\n", pr.Pattern, pr.Files, len(pr.Hits))
+		fmt.Fprintf(w, "# %s    files=%d hits=%d\n\n", pr.Pattern, pr.Files, len(pr.Hits)+pr.Truncated)
 		shown := pr.Hits
-		truncated := 0
+		truncated := pr.Truncated
 		if maxPerPattern > 0 && len(pr.Hits) > maxPerPattern {
 			shown = pr.Hits[:maxPerPattern]
 			truncated = len(pr.Hits) - maxPerPattern
@@ -82,6 +83,7 @@ func renderMarkdown(w io.Writer, r *Result, maxPerPattern int) {
 	if r.Skipped > 0 {
 		fmt.Fprintf(w, "\nskipped %d file(s): binary or over-long lines\n", r.Skipped)
 	}
+	writePage(w, r.Page)
 }
 
 func trim(s string, max int) string {

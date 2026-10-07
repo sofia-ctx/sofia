@@ -167,6 +167,7 @@ func TestDetectSource(t *testing.T) {
 }
 
 func TestSessionID(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "")
 	t.Run("CLAUDE_CODE_SESSION_ID wins", func(t *testing.T) {
 		t.Setenv("CLAUDE_CODE_SESSION_ID", "abc123")
 		t.Setenv("SOFIA_SESSION_ID", "fallback")
@@ -272,3 +273,16 @@ func TestSkipPluginGroups(t *testing.T) {
 type testErr string
 
 func (e testErr) Error() string { return string(e) }
+
+func TestCodexSessionIDFallback(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("SOFIA_SESSION_ID", "")
+	t.Setenv("CODEX_THREAD_ID", "codex-thread")
+	if got := sessionID(); got != "codex-thread" {
+		t.Fatalf("session = %q", got)
+	}
+	t.Setenv("SOFIA_SESSION_ID", "explicit")
+	if got := sessionID(); got != "explicit" {
+		t.Fatalf("override = %q", got)
+	}
+}

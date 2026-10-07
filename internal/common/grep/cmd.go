@@ -48,6 +48,8 @@ first so it's read as a pattern: sf grep -- "->method".`,
 	cmd.Flags().StringVar(&extFlag, "ext", "", "comma-separated extensions to include (e.g. \"php,ts,vue\"); empty = all")
 	cmd.Flags().StringVar(&ignoreFlag, "ignore-dir", "", "comma-separated extra directory names to skip")
 	cmd.Flags().IntVar(&opts.MaxPerPattern, "max-per-pattern", 30, "limit hits per pattern (0 = unlimited)")
+	cmd.Flags().IntVar(&opts.MaxTotal, "max-total", 60, "limit hits across all patterns, in every format (0 = unlimited)")
+	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip hits in the per-pattern capped result; use page.next_offset to continue")
 	cliflags.AttachFormatFlags(cmd, &opts.Format)
 
 	_ = cmd.RegisterFlagCompletionFunc("root", cliflags.DirOnly)

@@ -59,8 +59,9 @@ commands:
     log_args: false
 ```
 
-The command still receives its argv; only history storage and its argument
-fingerprint are suppressed. This does not redact stdout or stderr.
+The command still receives its argv; history arguments, fingerprints and optional summaries are suppressed. This does not redact stdout or stderr.
+
+The host may provide `SOFIA_CALL_SUMMARY_FILE`, an existing private temporary file. A plugin can write one JSON object of at most 64 KiB containing summary fields such as `inputs`, `shown`, `truncated`, `format` and a safe `error_kind`. The host merges it into the single history entry after the child exits and removes the file. Missing, malformed or oversized summaries do not affect the command. Never send credentials or raw query payloads in metadata. An empty/unset variable means the optional channel is disabled; plugins must still work on hosts without it. It is never provided for `log_args: false` commands, and inherited paths are cleared.
 
 ## Iterate
 
