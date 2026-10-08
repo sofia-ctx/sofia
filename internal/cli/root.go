@@ -31,6 +31,7 @@ import (
 	"github.com/sofia-ctx/sofia/internal/pack"
 	"github.com/sofia-ctx/sofia/internal/plugin"
 	"github.com/sofia-ctx/sofia/internal/version"
+	"github.com/sofia-ctx/sofia/pkg/phpmovecli"
 	"github.com/sofia-ctx/sofia/pkg/strdist"
 )
 
@@ -70,7 +71,7 @@ func init() {
 		}
 	}
 	add("context", commoncode.NewCommand(), grep.NewCommand(), refs.NewCommand(), changed.NewCommand(), cc.NewCommand())
-	add("php", composer.NewCommand(), packagist.NewCommand(), github.NewCommand())
+	add("php", composer.NewCommand(), packagist.NewCommand(), github.NewCommand(), phpmovecli.NewCommand(nil))
 	add("projects", vue.NewCommand())
 	add("infra", doctor.NewCommand(), gripe.NewCommand(), history.NewCommand(), worktrees.NewCommand(), mcpserver.NewCommand(), plugin.NewCommand(), pack.NewCommand(), initcmd.NewCommand(), launch.NewCommand())
 	RootCmd.AddCommand(hook.NewCommand()) // hidden plumbing — deliberately ungrouped

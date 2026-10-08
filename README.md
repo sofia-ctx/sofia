@@ -134,6 +134,28 @@ negative `--max` to remove the cap entirely.
 Measured on this repo's own tree
 ([docs/measurements/tools/refs.md](docs/measurements/tools/refs.md)).
 
+### `sf move`: reviewed PHP file and directory moves
+
+`sf move plan FROM TO --out PLAN --diff` prepares an offline relocation. `FROM` and `TO` are exact project-relative paths, and `TO` must not exist. The source may be one file or a directory, including ordinary assets and empty directories. PHP files follow `composer.json` PSR-4 mappings in `autoload` and `autoload-dev`. Renaming a PHP file also renames its declared type. Plans preserve source bytes outside targeted edits, including property hooks, comments and line endings. They update resolved class references and normal/grouped imports while retaining import aliases. Functions and constants are resolved separately from classes.
+
+```bash
+sf move plan src/Old/Widget.php src/Domain/Widget.php --out /tmp/widget-move.json --diff
+sf move plan src/Old src/Domain --out /tmp/domain-move.json
+sf move apply /tmp/widget-move.json
+```
+
+Planning changes no project sources. The JSON plan stores original/replacement bytes as base64, exact source edits, class mappings, input hashes, exclusions and review warnings. The plan file is created with mode `0600`, must be new, and must be outside the project or inside an existing `.sf-move` directory. Review output is text, with an optional unified diff. Successful application returns a JSON receipt with the transaction directory. Exit 0 means the requested operation completed, and failures return nonzero. Root discovery uses `--root`, `SOFIA_PROJECT_ROOT`, then the nearest parent `composer.json`.
+
+`apply` rebuilds the plan and rejects changed source, new references in the scan scope, different permissions, collisions or edited plan contents before changing project files. It creates a lock and a private recovery journal under `.sf-move`, stages replacement files, and rolls back on ordinary I/O failures. A rollback never deliberately overwrites a detected concurrent edit. An incomplete rollback retains the lock and reports the journal. The journal includes the original plan and recovery bytes. Recovery after process termination or power loss is manual. Individual file replacements are atomic, but the whole move is not. Keep other writers out of the workspace during application. File contents and permission bits are preserved as specified in the plan, not ownership, timestamps or extended metadata.
+
+The first version requires one explicit nonempty namespace and one named type in each moved PHP file. It rejects moved files with namespace functions/constants, parser errors, ambiguous Composer mappings, symlinked move paths and destination collisions. A grouped import with comments can be adjusted in place, but splitting it across unrelated namespace roots fails if doing so could lose those comments. The PHP reader's known heredoc limitation also blocks relocation of affected candidate files.
+
+Linux application rejects source/destination paths on a different filesystem from the journal before changing sources, because staging and rollback use hard links and renames. On other platforms a cross-filesystem I/O failure can still require manual recovery from the journal. PSR-4 namespace prefixes must have a trailing backslash, and moved PHP file names must use the `.php` extension with that exact case.
+
+PHPDoc types, possible class names in strings, namespace fallback behavior, `__NAMESPACE__`, location-dependent expressions and matching non-PHP text are review warnings, not automatic changes. `apply --accept-warnings` acknowledges those warnings in the exact saved plan. It does not repair them or bypass stale-plan checks. Computed/dynamic references and arbitrary external file formats remain outside static guarantees. Complete any required manual changes before application by rebuilding the plan, or after application before using the result.
+
+Reference search covers `.php` syntax and text hints in `.inc`, `.phtml`, `.json`, `.yaml`, `.yml`, `.xml`, `.neon`, `.ini`, `.twig`, `.md`, `.ts`, `.tsx`, `.js`, `.jsx`, `.vue` and `.txt`. Components `.git`, `.sf-move`, `.idea`, `vendor`, `node_modules` and `var` are excluded. Other symlinks are recorded as review warnings and never followed. Additional literal files or directory trees may be omitted with repeatable `--exclude PATH`, visible in the saved plan. Exclusions cannot overlap the move or Composer manifest. Limits are 50,000 visited entries, 8 MiB per searched/moved file, 256 MiB of source input, 128 MiB per plan and 4 MiB of review output. Limits fail explicitly, without silently truncating references. The command runs no PHP, Composer, Git or deployment operations.
+
 ### `sf code` — structural summary of a source file (Go + PHP + Python + TS/JS/Vue)
 
 A compact structural summary of a file **without function bodies**: for Go —

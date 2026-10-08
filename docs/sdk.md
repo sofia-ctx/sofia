@@ -2,7 +2,7 @@
 
 `sf` is built from a handful of small, dependency-light Go packages — a PHP
 symbol reader, a tree walker, a line matcher, a token estimator, and so on.
-Nine of them are also useful on their own, so they're exported under `pkg/`
+Reusable components are exported under `pkg/`
 as a public SDK: Tier 3 of the [three-tier plugin
 design](../internal/plugin/plugin.go) (Tier 1 is a declarative adapter, see
 [docs/adapters.md](adapters.md); Tier 2 is a subprocess plugin, see
@@ -63,6 +63,14 @@ Supported syntax is parsed directly, preserving DNF constituents and hook bodies
 Compatibility note for release: summary fields are additive, but promoted properties now appear in `Properties`, `Partial` covers all recovered parses, and `Slice` rejects malformed or ambiguous input previously tolerated. Consumers relying on those behaviors need migration and the version treatment required by the policy below.
 
 Known backend limitation in v0.1.1: a heredoc/nowdoc closing label followed by a space before punctuation can be missed by the lexer. Such source may be reported as partial with indentation diagnostics, and strict reads/slices reject it. This is a parser limitation, not proof that the PHP source is invalid. The adapter does not suppress these diagnostics or silently rewrite the source. Upgrading the backend requires rerunning modern-syntax, recovery, byte-position and concurrent-reader tests.
+
+## PHP relocations
+
+`php.Relocate(source, path, php.Relocation{Classes: mappings, Move: true, Namespace: oldNamespace, NewNamespace: newNamespace})` returns rewritten original bytes, exclusive byte-span edits, original declarations and review warnings. `Classes` maps old to new FQCNs without leading backslashes. Set `Move: false` for consumers whose declarations stay in place. It requires a clean original parse and never uses recovery normalization or an AST pretty printer. Backend AST types remain private. The adapter skips name resolution for variable/expression function calls, which are not names, while still visiting their arguments and nested expressions.
+
+`pkg/phpmove` provides `Build(root, from, to)`, `BuildExcluding(root, from, to, relativeExclusions)`, `Encode`, `Decode` and `Apply(plan, acceptWarnings)`. Plans are versioned, deterministic, binary-safe JSON documents. `Build` performs no writes. `Apply` acquires a per-project lock, recomputes the plan, requires exact equality and retains a recovery journal. Its transaction is reversible on ordinary failures, with guarded rollback, but not atomic across files and not automatically recovered after process termination. Filesystem containment uses `os.Root`, with explicit symlink rejection for moved paths. Concurrent external writers are unsupported.
+
+`pkg/phpmovecli.NewCommand(rootResolver)` exposes the same plan/apply contract through Cobra. A nil resolver uses generic Composer root discovery. A plugin can supply its own resolver without importing host internals. Help is offline and does not resolve a project root. The [move command contract](../README.md#sf-move-reviewed-php-file-and-directory-moves) documents supported syntax, exclusions, hard limits, warnings, filesystem behavior and recovery requirements. This is static class relocation, not a runtime correctness check or a general PHPDoc/configuration refactoring engine.
 
 ## Semver policy
 
