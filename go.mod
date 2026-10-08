@@ -3,7 +3,7 @@ module github.com/sofia-ctx/sofia
 go 1.25.0
 
 require (
-	github.com/VKCOM/php-parser v0.8.2
+	github.com/dimasma0305/php-parser-go v0.1.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9

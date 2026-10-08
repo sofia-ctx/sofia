@@ -31,7 +31,8 @@ parallel, aggregating the output.
                methods), function/method signatures, consts, vars.
   PHP  (.php): namespace, class/interface/trait/enum, extends/implements,
                attributes, constructor deps, properties, method signatures.
-               Parses PHP 8.2–8.5 syntax (normalized to the 8.1 grammar).
+               Native PHP 8.5 parsing, property hooks, asymmetric visibility,
+               complete DNF types. Recovered summaries are marked partial.
                --api flattens the effective public surface (own + trait +
                inherited methods, each tagged with its source) so you needn't
                chase a class across its traits and parents to learn its API.
@@ -63,6 +64,9 @@ call: whatever's found still comes back, with a comment marking what's
 missing (and the available names) — unless NONE of the requested symbols
 exist, which errors. Symbol slicing needs a single real file, not a
 directory or glob.
+
+PHP also accepts '$property' and 'Class::$property::get' (quote the $).
+PHP slices require a clean parse of the original source, without recovery.
 
   sf code internal/server/server.go
   sf code frontend/src/api/types.ts frontend/src/router/index.ts   # several at once

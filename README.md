@@ -149,11 +149,9 @@ assignments; for TS/JS/Vue (`.ts/.tsx/.mts/.cts`, `.js/.jsx/.mjs/.cjs`,
 the components referenced from `<template>`. It replaces `cat`-ing a whole file
 when what's needed is shape or API — which is exactly where read tokens go.
 
-Go uses the stdlib `go/parser`. PHP uses a shared parser with 8.2–8.5 syntax
-normalised down to the 8.1 grammar it understands (covers >99.5% of real
-files). Python and TS/JS/Vue use a line-based extractor (approximate — no full
-parser; for Python, nested defs and docstring text are skipped; for JS the
-type-level patterns simply never match).
+Go uses the stdlib `go/parser`. PHP uses `dimasma0305/php-parser-go` v0.1.1 with a native PHP 8.5 grammar, including property hooks, asymmetric visibility and full DNF types. Supported syntax is parsed from the original bytes. Structural summaries can recover from syntax errors, but always mark those results `Partial` and include original diagnostics. Legacy normalization remains isolated as a lossy recovery fallback, including a place for future syntax workarounds. Python and TS/JS/Vue use a line-based extractor (approximate, no full parser; for Python, nested defs and docstring text are skipped; for JS the type-level patterns simply never match).
+
+PHP property summaries include hook signatures and explicit write visibility. Structural JSON includes promoted properties as well as constructor dependencies, with modifiers, attributes and hook metadata. Text summaries omit ordinary promoted dependencies already shown under `ctor`.
 
 `sf code` is a thin **router**: it dispatches by extension to per-language
 libraries under `internal/common/code/{gocode,phpcode,pycode,tscode}` (each tested
@@ -169,6 +167,8 @@ preserves readable content on parser failures. A missing or unreadable file is a
 For structural summaries below **8 KB**, the raw file comes back behind a one-line `# raw: …` header (per file inside a batch). The project's own A/B measured structural round-trips losing to a plain read on small files. `SOFIA_CODE_RAW_BELOW=<bytes>` moves this summary threshold; `0` disables the passthrough.
 
 Explicit symbol requests always parse and slice, including files below 8 KB: `sf code small.php get getDiscount` returns the requested method bodies and reports missing names. The combined slice still falls back to the raw file when it would be larger than the original. The summary threshold does not affect symbol validation.
+
+PHP slices also accept properties and hooks: `sf code Example.php 'Example::$name' 'Example::$name::get'`. Quote the selector to protect `$` from the shell. `$name` and `$name::get` work when unique. A property with several variables returns their shared declaration, and a promoted property returns its constructor parameter. Slices preserve original bytes, comments inside the declaration and line endings. Syntax errors anywhere in the file are rejected, with no normalization, and ambiguous bare names require qualification.
 
 TS/JS slices preserve source text and adjacent JSDoc for top-level functions, simple named bindings, classes/types, class members (`Class.method`) and direct members of named object literals (`API.load`). Bare member names work when unique; an exact top-level name takes precedence. Overload signatures and accessor pairs are returned together. Vue slices search both inline `<script>` and `<script setup>` blocks without including template/style markup; duplicate names across the blocks are ambiguous. The extractor tracks lexical delimiters, comments, strings, regexes and template interpolation; it is not a TypeScript parser/type checker. JSX bodies, external Vue scripts and unsupported script languages return errors. Nested local bindings, destructuring names and arbitrary object/call expressions are not indexed. Node.js is not required to run sf.
 
@@ -729,7 +729,7 @@ sofia/
 │   ├── codectx/                  # enclosing-function lookup for PHP/TS/Twig/INI
 │   ├── emit/                     # output budget: compact-or-raw (SmallerOf)
 │   ├── matcher/                  # line-based search (literal + regex)
-│   ├── php/                      # PhpSymbolReader (VKCOM/php-parser AST)
+│   ├── php/                      # PHP 8.5 summaries and source slices
 │   ├── strdist/                  # Levenshtein for typo hints (did you mean)
 │   ├── tokens/                   # fast heuristic LLM token estimate
 │   ├── toon/                     # TOON primitives (Scalar, JoinList)

@@ -1,29 +1,18 @@
-// Package php reads a PHP source file and returns a structured summary
-// of the first class/interface/trait/enum declaration it finds: namespace,
-// FQCN, modifiers, parent/implements, public methods, constructor
-// dependencies, and the docblock summary.
-//
-// The goal is to let downstream tools answer questions about a class
-// without making the model cat the whole file.
-//
-// Backend: github.com/VKCOM/php-parser (pure Go, no CGO). Adapter is the
-// package-level Read/ReadString — swap backends here if VKCOM ever stops
-// being viable.
+// Package php summarizes PHP types and slices declarations from original source.
+// The native Go parser supports PHP 8.5. Read tolerates explicitly marked recovery;
+// ReadStrict and Slice require an error-free parse of the original bytes.
 package php
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
-	"github.com/VKCOM/php-parser/pkg/ast"
-	"github.com/VKCOM/php-parser/pkg/conf"
-	"github.com/VKCOM/php-parser/pkg/errors"
-	"github.com/VKCOM/php-parser/pkg/parser"
-	"github.com/VKCOM/php-parser/pkg/token"
-	"github.com/VKCOM/php-parser/pkg/version"
-	"github.com/VKCOM/php-parser/pkg/visitor"
-	"github.com/VKCOM/php-parser/pkg/visitor/traverser"
+	"github.com/dimasma0305/php-parser-go/ast"
+	"github.com/dimasma0305/php-parser-go/parser"
+	"github.com/dimasma0305/php-parser-go/phpparser"
 )
 
 // Kind classifies the top-level declaration found in the file.
@@ -40,21 +29,23 @@ const (
 // All names are FQCN where applicable (parser resolves short names via
 // `use`-imports).
 type Symbol struct {
-	File       string
-	Namespace  string
-	FQCN       string
-	Kind       Kind
-	Modifiers  []string // final, readonly, abstract — in source order
-	Extends    string   // empty for interfaces/traits/enums; FQCN otherwise
-	Implements []string // for classes: implements list; for interfaces: extends list; for enums: implements list
-	Uses       []string // FQCN of traits composed via `use` in the body (classes and traits)
-	DocSummary string   // first non-tag line of the class-level docblock, or ""
-	Attributes []Attr   // class-level attributes with arguments (e.g. #[ORM\Table(...)])
-	CtorDeps   []CtorDep
-	Properties []Property // declared properties (any visibility) with type + attributes
-	Cases      []EnumCase // enum cases (empty for non-enums)
-	Methods    []Method   // public only; __construct excluded (captured as CtorDeps)
-	Partial    bool       // recovered by the regex fallback, not the AST: names are unresolved and members are absent
+	File        string
+	Namespace   string
+	FQCN        string
+	Kind        Kind
+	Modifiers   []string // final, readonly, abstract
+	Extends     string   // empty for interfaces/traits/enums; FQCN otherwise
+	Implements  []string // for classes: implements list; for interfaces: extends list; for enums: implements list
+	Uses        []string // FQCN of traits composed via `use` in the body (classes and traits)
+	DocSummary  string   // first non-tag line of the class-level docblock, or ""
+	Attributes  []Attr   // class-level attributes with arguments (e.g. #[ORM\Table(...)])
+	CtorDeps    []CtorDep
+	Properties  []Property // declared and promoted properties (any visibility)
+	Cases       []EnumCase // enum cases (empty for non-enums)
+	Methods     []Method   // public only; __construct excluded (captured as CtorDeps)
+	Partial     bool       // source had parse errors; recovered members may be incomplete
+	Recovery    string     `json:",omitempty"` // partial_ast | normalized_ast | source
+	Diagnostics []string   `json:",omitempty"` // original-source parse errors
 }
 
 // Attr is a PHP attribute together with its arguments, in source order.
@@ -86,10 +77,14 @@ func (a Attr) Get(name string) (string, bool) {
 
 // Property is a class property with its declared type and attributes.
 type Property struct {
-	Name       string
-	Type       string // PHP type as written, resolved like params; "" if untyped
-	Visibility string // public | protected | private
-	Attributes []Attr
+	Name            string
+	Type            string         // PHP type as written, resolved like params; "" if untyped
+	Visibility      string         // public | protected | private
+	WriteVisibility string         `json:",omitempty"` // explicitly declared public(set), protected(set), private(set)
+	Modifiers       []string       `json:",omitempty"`
+	Promoted        bool           `json:",omitempty"`
+	Hooks           []PropertyHook `json:",omitempty"`
+	Attributes      []Attr
 }
 
 // EnumCase is one case of a PHP enum. Value is the backing value for a
@@ -124,83 +119,105 @@ type Param struct {
 	Type string
 }
 
-// Read parses path and returns the first named type declaration.
-// Returns an error if no such declaration exists, or if the file cannot
-// be parsed.
-func Read(path string) (*Symbol, error) {
+// PropertyHook describes a get/set declaration. BodyKind is abstract, expression,
+// or block. Use Slice to obtain the original body, including comments.
+type PropertyHook struct {
+	Name       string
+	ByRef      bool
+	Modifiers  []string
+	Params     []Param
+	Attributes []Attr
+	BodyKind   string
+}
+
+// Read returns the first named type. Partial results carry original diagnostics.
+func Read(path string) (*Symbol, error) { return readFile(path, false) }
+
+// ReadStrict rejects source requiring any error recovery or normalization.
+// Successful parsing checks syntax, not PHP runtime or type correctness.
+func ReadStrict(path string) (*Symbol, error) { return readFile(path, true) }
+
+func readFile(path string, strict bool) (*Symbol, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("php.Read %s: %w", path, err)
 	}
-	return ReadString(string(src), path)
+	return readString(string(src), path, strict)
 }
 
-// ReadString parses src (which must begin with "<?php") and uses
-// virtualPath as the Symbol.File field and as context in error messages.
-// Useful for unit tests where the source lives in a string literal.
-func ReadString(src, virtualPath string) (*Symbol, error) {
-	raw := []byte(src)
-	root, parseErrs, err := parsePHP(raw)
-	if err != nil {
-		return nil, fmt.Errorf("php.ReadString %s: %w", virtualPath, err)
-	}
-	sym := extract(root, virtualPath)
+// ReadString uses virtualPath in the summary and diagnostics.
+func ReadString(src, virtualPath string) (*Symbol, error) { return readString(src, virtualPath, false) }
 
-	// VKCOM tops out at PHP 8.1. On any parse error, retry once on a
-	// normalized copy that downgrades PHP 8.2–8.5 declaration syntax (see
-	// normalize.go) and keep whichever parse recovered MORE member
-	// declarations. A normalization can rescue a whole class while leaving
-	// (or even waking) deeper body errors, so a plain "fewer errors" rule
-	// would wrongly discard the better parse.
-	if len(parseErrs) > 0 {
-		if r2, pe2, e2 := parsePHP(normalizeModern(raw)); e2 == nil {
-			sym2 := extract(r2, virtualPath)
-			if betterSymbol(sym2, sym, len(pe2), len(parseErrs)) {
-				sym, parseErrs = sym2, pe2
+// ReadStringStrict never uses normalized source or a recovered AST.
+func ReadStringStrict(src, virtualPath string) (*Symbol, error) {
+	return readString(src, virtualPath, true)
+}
+
+func readString(src, path string, strict bool) (*Symbol, error) {
+	raw := []byte(src)
+	nodes, diagnostics, err := parsePHP(raw)
+	if err != nil {
+		return nil, fmt.Errorf("php.Read %s: %w", path, err)
+	}
+	if strict && len(diagnostics) > 0 {
+		return nil, parseError(path, diagnostics)
+	}
+	sym := extract(nodes, path)
+	recovery := "partial_ast"
+	if len(diagnostics) > 0 && !strict {
+		// Compatibility transforms remain a separate, lossy recovery path. Never
+		// run them for supported syntax or use their byte offsets for source edits.
+		normalized := normalizeModern(raw)
+		if !bytes.Equal(normalized, raw) {
+			if recovered, errors, err := parsePHP(normalized); err == nil {
+				candidate := extract(recovered, path)
+				if betterSymbol(candidate, sym, len(errors), len(diagnostics)) {
+					sym, recovery = candidate, "normalized_ast"
+				}
 			}
 		}
-	}
-
-	// Degrade-to-partial: neither parse recovered a declaration, but the
-	// bytes clearly contain one. Hand back a regex-extracted skeleton instead
-	// of a hard error, so the caller gets partial structure (and can
-	// self-correct) rather than nothing.
-	if sym == nil {
-		if p := extractPartial(raw, virtualPath); p != nil {
-			return p, nil
+		if sym == nil {
+			sym, recovery = extractPartial(raw, path), "source"
+		}
+		if sym != nil {
+			sym.Partial, sym.Recovery, sym.Diagnostics = true, recovery, diagnostics
 		}
 	}
-
 	if sym == nil {
-		if len(parseErrs) > 0 {
-			return nil, fmt.Errorf("php.ReadString %s: %d parse error(s): %s",
-				virtualPath, len(parseErrs), parseErrs[0].String())
+		if len(diagnostics) > 0 {
+			return nil, parseError(path, diagnostics)
 		}
-		return nil, fmt.Errorf("php.ReadString %s: no class/interface/trait/enum found", virtualPath)
+		return nil, fmt.Errorf("php.Read %s: no class/interface/trait/enum found", path)
 	}
 	return sym, nil
 }
 
-// extract walks a (possibly partial) AST and returns the first recovered type
-// declaration, or nil. Residual parse errors are tolerated — they are
-// typically deep in method bodies and do not affect a class's declared shape.
-func extract(root ast.Vertex, virtualPath string) *Symbol {
-	if root == nil {
-		return nil
-	}
-	ex := &extractor{file: virtualPath, imports: map[string]string{}}
-	traverser.NewTraverser(ex).Traverse(root)
-	return ex.sym
+func parseError(path string, diagnostics []string) error {
+	return fmt.Errorf("php %s: %d parse error(s): %s", path, len(diagnostics), diagnostics[0])
 }
 
-// betterSymbol reports whether candidate cand should replace the current best
-// cur: more recovered members win, ties break on fewer parse errors, and any
-// non-nil symbol beats nil.
+func parsePHP(src []byte) ([]ast.Node, []string, error) {
+	p, err := (parser.ParserFactory{}).CreateForNewestSupportedVersion()
+	if err != nil {
+		return nil, nil, err
+	}
+	handler := &phpparser.CollectingErrorHandler{}
+	nodes, err := p.Parse(string(src), handler)
+	var diagnostics []string
+	for _, e := range handler.Errors() {
+		diagnostics = append(diagnostics, e.Error())
+	}
+	if err != nil && len(diagnostics) == 0 {
+		return nil, nil, err
+	}
+	return nodes, diagnostics, nil
+}
+
 func betterSymbol(cand, cur *Symbol, candErrs, curErrs int) bool {
-	switch {
-	case cand == nil:
+	if cand == nil {
 		return false
-	case cur == nil:
+	}
+	if cur == nil {
 		return true
 	}
 	if cm, curm := memberCount(cand), memberCount(cur); cm != curm {
@@ -210,501 +227,355 @@ func betterSymbol(cand, cur *Symbol, candErrs, curErrs int) bool {
 }
 
 func memberCount(s *Symbol) int {
-	return len(s.Methods) + len(s.Properties) + len(s.CtorDeps) + len(s.Cases)
+	count := len(s.Methods) + len(s.Properties) + len(s.CtorDeps) + len(s.Cases)
+	for _, p := range s.Properties {
+		count += len(p.Hooks)
+	}
+	return count
 }
 
-// parsePHP runs the VKCOM parser at PHP 8.1 (its maximum), collecting any
-// recoverable parse errors rather than failing hard.
-func parsePHP(src []byte) (ast.Vertex, []*errors.Error, error) {
-	var parseErrs []*errors.Error
-	v, _ := version.New("8.1")
-	root, err := parser.Parse(src, conf.Config{
-		Version:          v,
-		ErrorHandlerFunc: func(e *errors.Error) { parseErrs = append(parseErrs, e) },
-	})
-	return root, parseErrs, err
-}
-
-// extractor is a Visitor that walks the AST and fills a Symbol. Only
-// the FIRST class-like declaration is captured (one-class-per-file is
-// the common case; multi-class files are out of scope for v1).
 type extractor struct {
-	visitor.Null
-	file    string
-	ns      string
-	imports map[string]string // short alias -> FQCN (no leading "\")
-	sym     *Symbol
+	file, ns string
+	imports  map[string]string
+	sym      *Symbol
 }
 
-func (e *extractor) StmtNamespace(n *ast.StmtNamespace) {
-	e.ns = nameToString(n.Name)
+func extract(nodes []ast.Node, path string) *Symbol {
+	e := &extractor{file: path, imports: map[string]string{}}
+	for _, n := range nodes {
+		ast.Walk(n, e.visit)
+	}
+	return e.sym
 }
 
-func (e *extractor) StmtUseDeclaration(n *ast.StmtUse) {
-	fqcn := nameToString(n.Use)
-	var alias string
-	if n.Alias != nil {
-		alias = identifierValue(n.Alias)
-	} else {
-		segs := strings.Split(fqcn, `\`)
-		alias = segs[len(segs)-1]
-	}
-	if alias != "" && fqcn != "" {
-		e.imports[alias] = fqcn
-	}
-}
-
-func (e *extractor) StmtClass(n *ast.StmtClass) {
-	if e.sym != nil || identifierValue(n.Name) == "" {
-		return
-	}
-	sym := &Symbol{
-		File:       e.file,
-		Namespace:  e.ns,
-		Kind:       KindClass,
-		Modifiers:  identifierList(n.Modifiers),
-		Implements: e.resolveNames(n.Implements),
-		FQCN:       joinFQCN(e.ns, identifierValue(n.Name)),
-		DocSummary: docSummary(leadToken(n.AttrGroups, n.Modifiers, n.ClassTkn)),
-		Attributes: e.attributes(n.AttrGroups),
-	}
-	if n.Extends != nil {
-		sym.Extends = e.resolveName(n.Extends)
-	}
-	e.fillMembers(sym, n.Stmts)
-	e.sym = sym
-}
-
-func (e *extractor) StmtInterface(n *ast.StmtInterface) {
+func (e *extractor) visit(n ast.Node) bool {
 	if e.sym != nil {
-		return
+		return false
 	}
-	sym := &Symbol{
-		File:       e.file,
-		Namespace:  e.ns,
-		Kind:       KindInterface,
-		FQCN:       joinFQCN(e.ns, identifierValue(n.Name)),
-		Implements: e.resolveNames(n.Extends), // `interface A extends B, C` -> Implements=[B,C]
-		DocSummary: docSummary(leadToken(n.AttrGroups, nil, n.InterfaceTkn)),
-	}
-	e.fillMembers(sym, n.Stmts)
-	e.sym = sym
-}
-
-func (e *extractor) StmtTrait(n *ast.StmtTrait) {
-	if e.sym != nil {
-		return
-	}
-	sym := &Symbol{
-		File:       e.file,
-		Namespace:  e.ns,
-		Kind:       KindTrait,
-		FQCN:       joinFQCN(e.ns, identifierValue(n.Name)),
-		DocSummary: docSummary(leadToken(n.AttrGroups, nil, n.TraitTkn)),
-	}
-	e.fillMembers(sym, n.Stmts)
-	e.sym = sym
-}
-
-func (e *extractor) StmtEnum(n *ast.StmtEnum) {
-	if e.sym != nil {
-		return
-	}
-	sym := &Symbol{
-		File:       e.file,
-		Namespace:  e.ns,
-		Kind:       KindEnum,
-		FQCN:       joinFQCN(e.ns, identifierValue(n.Name)),
-		Implements: e.resolveNames(n.Implements),
-		DocSummary: docSummary(leadToken(n.AttrGroups, nil, n.EnumTkn)),
-	}
-	e.fillMembers(sym, n.Stmts)
-	e.sym = sym
-}
-
-// fillMembers extracts methods, ctor deps, and properties from the class
-// body. Skips non-public methods. Skips __construct as a method — its
-// params become CtorDeps. Properties are captured at any visibility (a
-// Doctrine column is typically private).
-func (e *extractor) fillMembers(sym *Symbol, stmts []ast.Vertex) {
-	for _, s := range stmts {
-		switch n := s.(type) {
-		case *ast.StmtClassMethod:
-			e.addMethod(sym, n)
-		case *ast.StmtPropertyList:
-			e.addProperties(sym, n)
-		case *ast.StmtTraitUse:
-			e.addTraitUses(sym, n)
-		case *ast.EnumCase:
-			e.addEnumCase(sym, n)
-		}
-	}
-}
-
-// addEnumCase records one enum case. Value is the backing value of a backed
-// enum (e.g. 'active'); attrArgValue returns "" for a pure enum (nil Expr).
-func (e *extractor) addEnumCase(sym *Symbol, c *ast.EnumCase) {
-	sym.Cases = append(sym.Cases, EnumCase{
-		Name:  identifierValue(c.Name),
-		Value: e.attrArgValue(c.Expr),
-	})
-}
-
-// addTraitUses records the traits composed into the body via `use Foo, Bar;`.
-// Names resolve to FQCN through the file's use-imports (or the current
-// namespace), mirroring extends/implements. Trait adaptations
-// (insteadof/`as`) are not modelled in v1 — only the source trait set is
-// captured, which is what the effective-API surface needs.
-func (e *extractor) addTraitUses(sym *Symbol, n *ast.StmtTraitUse) {
-	for _, t := range n.Traits {
-		if fqcn := e.resolveName(t); fqcn != "" {
-			sym.Uses = append(sym.Uses, fqcn)
-		}
-	}
-}
-
-func (e *extractor) addMethod(sym *Symbol, mth *ast.StmtClassMethod) {
-	name := identifierValue(mth.Name)
-	if !isPublic(mth.Modifiers) {
-		return
-	}
-	if name == "__construct" {
-		for _, p := range mth.Params {
-			param, ok := p.(*ast.Parameter)
-			if !ok {
-				continue
-			}
-			sym.CtorDeps = append(sym.CtorDeps, CtorDep{
-				Name:     paramName(param),
-				Type:     e.resolveType(param.Type),
-				Promoted: len(param.Modifiers) > 0,
-			})
-		}
-		return
-	}
-	m := Method{
-		Name:       name,
-		ReturnType: e.resolveType(mth.ReturnType),
-		Attributes: attributeNames(mth.AttrGroups),
-		Attrs:      e.attributes(mth.AttrGroups),
-	}
-	for _, p := range mth.Params {
-		param, ok := p.(*ast.Parameter)
-		if !ok {
-			continue
-		}
-		m.Params = append(m.Params, Param{
-			Name: paramName(param),
-			Type: e.resolveType(param.Type),
-		})
-	}
-	sym.Methods = append(sym.Methods, m)
-}
-
-func (e *extractor) addProperties(sym *Symbol, list *ast.StmtPropertyList) {
-	typ := e.resolveType(list.Type)
-	vis := visibility(list.Modifiers)
-	attrs := e.attributes(list.AttrGroups)
-	for _, p := range list.Props {
-		prop, ok := p.(*ast.StmtProperty)
-		if !ok {
-			continue
-		}
-		v, ok := prop.Var.(*ast.ExprVariable)
-		if !ok {
-			continue
-		}
-		sym.Properties = append(sym.Properties, Property{
-			Name:       strings.TrimPrefix(identifierValue(v.Name), "$"),
-			Type:       typ,
-			Visibility: vis,
-			Attributes: attrs,
-		})
-	}
-}
-
-// resolveType handles parameter/return type Vertex shapes: builtin
-// identifiers (int, void, mixed, self, static), names (resolved via
-// use-imports), Nullable, Union, Intersection. Returns "" for nil.
-func (e *extractor) resolveType(v ast.Vertex) string {
-	if v == nil {
-		return ""
-	}
-	switch t := v.(type) {
-	case *ast.Nullable:
-		return "?" + e.resolveType(t.Expr)
-	case *ast.Union:
-		parts := make([]string, 0, len(t.Types))
-		for _, x := range t.Types {
-			parts = append(parts, e.resolveType(x))
-		}
-		return strings.Join(parts, "|")
-	case *ast.Intersection:
-		parts := make([]string, 0, len(t.Types))
-		for _, x := range t.Types {
-			parts = append(parts, e.resolveType(x))
-		}
-		return strings.Join(parts, "&")
-	case *ast.Identifier:
-		return string(t.Value)
-	default:
-		return e.resolveName(v)
-	}
-}
-
-// resolveName turns a Name/NameFullyQualified Vertex into a FQCN string.
-// Plain names (`Foo`, `Foo\Bar`) are looked up in the use-imports map;
-// unrecognized names fall back to the current namespace. Fully-qualified
-// names (leading "\") are returned without leading "\".
-func (e *extractor) resolveName(v ast.Vertex) string {
-	if v == nil {
-		return ""
-	}
-	if _, fq := v.(*ast.NameFullyQualified); fq {
-		return nameToString(v)
-	}
-	raw := nameToString(v)
-	if raw == "" {
-		return ""
-	}
-	if isBuiltinType(raw) {
-		return raw
-	}
-	segs := strings.SplitN(raw, `\`, 2)
-	if fqcn, ok := e.imports[segs[0]]; ok {
-		if len(segs) == 1 {
-			return fqcn
-		}
-		return fqcn + `\` + segs[1]
-	}
-	if e.ns != "" {
-		return e.ns + `\` + raw
-	}
-	return raw
-}
-
-func (e *extractor) resolveNames(vs []ast.Vertex) []string {
-	if len(vs) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(vs))
-	for _, v := range vs {
-		out = append(out, e.resolveName(v))
-	}
-	return out
-}
-
-func nameToString(v ast.Vertex) string {
-	if v == nil {
-		return ""
-	}
-	switch n := v.(type) {
-	case *ast.Name:
-		return joinNameParts(n.Parts)
-	case *ast.NameFullyQualified:
-		return joinNameParts(n.Parts)
-	case *ast.NameRelative:
-		return joinNameParts(n.Parts)
-	case *ast.Identifier:
-		return string(n.Value)
-	case *ast.NamePart:
-		return string(n.Value)
-	}
-	return ""
-}
-
-func joinNameParts(parts []ast.Vertex) string {
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if np, ok := p.(*ast.NamePart); ok {
-			out = append(out, string(np.Value))
-		}
-	}
-	return strings.Join(out, `\`)
-}
-
-func identifierValue(v ast.Vertex) string {
-	if id, ok := v.(*ast.Identifier); ok {
-		return string(id.Value)
-	}
-	return ""
-}
-
-func identifierList(vs []ast.Vertex) []string {
-	if len(vs) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(vs))
-	for _, v := range vs {
-		out = append(out, identifierValue(v))
-	}
-	return out
-}
-
-// isPublic returns true if the method modifier list contains "public"
-// or no visibility modifier at all (PHP defaults methods to public).
-func isPublic(mods []ast.Vertex) bool {
-	if len(mods) == 0 {
-		return true
-	}
-	for _, m := range mods {
-		switch strings.ToLower(identifierValue(m)) {
-		case "private", "protected":
+	switch t := n.(type) {
+	case *ast.StmtNamespace:
+		e.ns, e.imports = nameToString(t.Name), map[string]string{}
+	case *ast.StmtUse:
+		typ, _ := t.Type.(int)
+		e.addImports(t.Uses, typ, "")
+		return false
+	case *ast.StmtGroupUse:
+		e.addImports(t.Uses, t.Type, nameToString(t.Prefix))
+		return false
+	case *ast.StmtClass:
+		if nameToString(t.Name) == "" {
 			return false
 		}
+		e.setType(n, t.Name, KindClass, t.Flags, t.AttrGroups, t.Stmts, t.Extends, t.Implements)
+		return false
+	case *ast.StmtInterface:
+		e.setType(n, t.Name, KindInterface, 0, t.AttrGroups, t.Stmts, nil, t.Extends)
+		return false
+	case *ast.StmtTrait:
+		e.setType(n, t.Name, KindTrait, 0, t.AttrGroups, t.Stmts, nil, nil)
+		return false
+	case *ast.StmtEnum:
+		e.setType(n, t.Name, KindEnum, 0, t.AttrGroups, t.Stmts, nil, t.Implements)
+		return false
 	}
 	return true
 }
 
-func paramName(p *ast.Parameter) string {
-	v, ok := p.Var.(*ast.ExprVariable)
-	if !ok {
-		return ""
+func (e *extractor) addImports(uses []ast.Node, typ int, prefix string) {
+	for _, n := range uses {
+		u, ok := n.(*ast.UseItem)
+		if !ok {
+			continue
+		}
+		kind := typ
+		if u.Type != 0 {
+			kind = u.Type
+		}
+		if kind != 0 && kind != ast.StmtUseTypeNormal {
+			continue
+		}
+		fqcn := joinFQCN(prefix, nameToString(u.Name))
+		alias := nameToString(u.Alias)
+		if alias == "" {
+			parts := strings.Split(fqcn, `\`)
+			alias = parts[len(parts)-1]
+		}
+		e.imports[strings.ToLower(alias)] = fqcn
 	}
-	return strings.TrimPrefix(identifierValue(v.Name), "$")
 }
 
-// isBuiltinType returns true for PHP scalar types and pseudo-types that
-// must not be FQCN-resolved as if they were class references.
+func (e *extractor) setType(node, name ast.Node, kind Kind, flags int, attrs, stmts []ast.Node, extends ast.Node, implements []ast.Node) {
+	sym := &Symbol{File: e.file, Namespace: e.ns, FQCN: joinFQCN(e.ns, nameToString(name)), Kind: kind,
+		Modifiers: modifiers(flags), Extends: e.resolveName(extends), Implements: e.resolveNames(implements),
+		Attributes: e.attributes(attrs), DocSummary: docSummary(node)}
+	for _, n := range stmts {
+		switch m := n.(type) {
+		case *ast.StmtClassMethod:
+			e.addMethod(sym, m)
+		case *ast.StmtProperty:
+			for _, item := range m.Props {
+				if p, ok := item.(*ast.PropertyItem); ok {
+					sym.Properties = append(sym.Properties, e.property(nameToString(p.Name), m.Type, m.Flags, m.AttrGroups, m.Hooks, false))
+				}
+			}
+		case *ast.StmtTraitUse:
+			sym.Uses = append(sym.Uses, e.resolveNames(m.Traits)...)
+		case *ast.StmtEnumCase:
+			sym.Cases = append(sym.Cases, EnumCase{Name: nameToString(m.Name), Value: e.attrArgValue(m.Expr)})
+		}
+	}
+	e.sym = sym
+}
+
+func (e *extractor) addMethod(sym *Symbol, m *ast.StmtClassMethod) {
+	name := nameToString(m.Name)
+	if strings.EqualFold(name, "__construct") {
+		for _, n := range m.Params {
+			p, ok := n.(*ast.Param)
+			if !ok {
+				continue
+			}
+			promoted := p.Flags != 0
+			if promoted {
+				sym.Properties = append(sym.Properties, e.property(paramName(p), p.Type, p.Flags, p.AttrGroups, p.Hooks, true))
+			}
+			if visibility(m.Flags) == "public" {
+				sym.CtorDeps = append(sym.CtorDeps, CtorDep{Name: paramName(p), Type: e.resolveType(p.Type), Promoted: promoted})
+			}
+		}
+		return
+	}
+	if visibility(m.Flags) != "public" {
+		return
+	}
+	sym.Methods = append(sym.Methods, Method{Name: name, ReturnType: e.resolveType(m.ReturnType), Params: e.params(m.Params), Attributes: attributeNames(m.AttrGroups), Attrs: e.attributes(m.AttrGroups)})
+}
+
+func (e *extractor) property(name string, typ ast.Node, flags int, attrs, hooks []ast.Node, promoted bool) Property {
+	p := Property{Name: name, Type: e.resolveType(typ), Visibility: visibility(flags), Modifiers: modifiers(flags), Attributes: e.attributes(attrs), Promoted: promoted}
+	switch {
+	case flags&phpparser.ModifierPrivateSet != 0:
+		p.WriteVisibility = "private"
+	case flags&phpparser.ModifierProtectedSet != 0:
+		p.WriteVisibility = "protected"
+	case flags&phpparser.ModifierPublicSet != 0:
+		p.WriteVisibility = "public"
+	}
+	for _, n := range hooks {
+		h, ok := n.(*ast.PropertyHook)
+		if !ok {
+			continue
+		}
+		body := "abstract"
+		switch h.Body.(type) {
+		case []ast.Node, []any:
+			body = "block"
+		case ast.Node:
+			body = "expression"
+		}
+		p.Hooks = append(p.Hooks, PropertyHook{Name: nameToString(h.Name), ByRef: h.ByRef, Modifiers: modifiers(h.Flags), Params: e.params(h.Params), Attributes: e.attributes(h.AttrGroups), BodyKind: body})
+	}
+	return p
+}
+
+func (e *extractor) params(nodes []ast.Node) []Param {
+	var out []Param
+	for _, n := range nodes {
+		if p, ok := n.(*ast.Param); ok {
+			out = append(out, Param{Name: paramName(p), Type: e.resolveType(p.Type)})
+		}
+	}
+	return out
+}
+
+func (e *extractor) resolveType(n ast.Node) string {
+	switch t := n.(type) {
+	case *ast.NullableType:
+		return "?" + e.resolveType(t.Type)
+	case *ast.UnionType:
+		var parts []string
+		for _, child := range t.Types {
+			node, _ := child.(ast.Node)
+			value := e.resolveType(node)
+			if _, ok := child.(*ast.IntersectionType); ok {
+				value = "(" + value + ")"
+			}
+			parts = append(parts, value)
+		}
+		return strings.Join(parts, "|")
+	case *ast.IntersectionType:
+		var parts []string
+		for _, child := range t.Types {
+			node, _ := child.(ast.Node)
+			parts = append(parts, e.resolveType(node))
+		}
+		return strings.Join(parts, "&")
+	case *ast.Identifier:
+		return t.Name
+	default:
+		return e.resolveName(n)
+	}
+}
+
+func (e *extractor) resolveName(n ast.Node) string {
+	raw := nameToString(n)
+	if raw == "" {
+		return ""
+	}
+	if _, ok := n.(*ast.NameFullyQualified); ok {
+		return raw
+	}
+	if _, ok := n.(*ast.NameRelative); ok {
+		return joinFQCN(e.ns, raw)
+	}
+	if isBuiltinType(raw) {
+		return raw
+	}
+	parts := strings.SplitN(raw, `\`, 2)
+	if fqcn, ok := e.imports[strings.ToLower(parts[0])]; ok {
+		if len(parts) == 2 {
+			return fqcn + `\` + parts[1]
+		}
+		return fqcn
+	}
+	return joinFQCN(e.ns, raw)
+}
+
+func (e *extractor) resolveNames(nodes []ast.Node) []string {
+	var out []string
+	for _, n := range nodes {
+		out = append(out, e.resolveName(n))
+	}
+	return out
+}
+
+func nameToString(n ast.Node) string {
+	switch t := n.(type) {
+	case *ast.Name:
+		return t.Name
+	case *ast.NameFullyQualified:
+		return t.Name
+	case *ast.NameRelative:
+		return t.Name
+	case *ast.Identifier:
+		return t.Name
+	case *ast.VarLikeIdentifier:
+		return t.Name
+	}
+	return ""
+}
+
+func paramName(p *ast.Param) string {
+	if v, ok := p.Var.(*ast.ExprVariable); ok {
+		if name, ok := v.Name.(string); ok {
+			return name
+		}
+	}
+	return ""
+}
+
 func isBuiltinType(s string) bool {
 	switch strings.ToLower(s) {
-	case "int", "float", "string", "bool", "void", "mixed", "never",
-		"self", "static", "parent", "object", "callable", "iterable",
-		"array", "true", "false", "null":
+	case "int", "float", "string", "bool", "void", "mixed", "never", "self", "static", "parent", "object", "callable", "iterable", "array", "true", "false", "null":
 		return true
 	}
 	return false
 }
 
-// leadToken returns the first token of a type declaration, considering
-// attribute groups and modifiers that may precede the keyword. The
-// FreeFloating list on this token holds the preceding docblock.
-func leadToken(attrGroups []ast.Vertex, modifiers []ast.Vertex, keyword *token.Token) *token.Token {
-	if len(attrGroups) > 0 {
-		if ag, ok := attrGroups[0].(*ast.AttributeGroup); ok {
-			return ag.OpenAttributeTkn
-		}
+func visibility(flags int) string {
+	if flags&phpparser.ModifierPrivate != 0 {
+		return "private"
 	}
-	if len(modifiers) > 0 {
-		if id, ok := modifiers[0].(*ast.Identifier); ok {
-			return id.IdentifierTkn
-		}
-	}
-	return keyword
-}
-
-// attributes extracts attributes with their arguments from attribute
-// groups. Names are resolved to FQCN via use-imports so consumers can
-// match on a stable suffix (e.g. "\Column").
-func (e *extractor) attributes(groups []ast.Vertex) []Attr {
-	var out []Attr
-	for _, g := range groups {
-		ag, ok := g.(*ast.AttributeGroup)
-		if !ok {
-			continue
-		}
-		for _, a := range ag.Attrs {
-			attr, ok := a.(*ast.Attribute)
-			if !ok {
-				continue
-			}
-			name := e.resolveName(attr.Name)
-			if name == "" {
-				continue
-			}
-			out = append(out, Attr{Name: name, Args: e.attrArgs(attr.Args)})
-		}
-	}
-	return out
-}
-
-func (e *extractor) attrArgs(args []ast.Vertex) []AttrArg {
-	var out []AttrArg
-	for _, a := range args {
-		arg, ok := a.(*ast.Argument)
-		if !ok {
-			continue
-		}
-		out = append(out, AttrArg{
-			Name:  identifierValue(arg.Name),
-			Value: e.attrArgValue(arg.Expr),
-		})
-	}
-	return out
-}
-
-// attrArgValue stringifies an attribute argument expression. Unknown node
-// shapes return "" rather than failing — schema/route consumers tolerate a
-// missing value and fall back to defaults.
-func (e *extractor) attrArgValue(v ast.Vertex) string {
-	switch t := v.(type) {
-	case *ast.ScalarString:
-		return unquotePHP(string(t.Value))
-	case *ast.ScalarLnumber:
-		return string(t.Value)
-	case *ast.ScalarDnumber:
-		return string(t.Value)
-	case *ast.ExprConstFetch:
-		return nameToString(t.Const) // true | false | null
-	case *ast.ExprClassConstFetch:
-		return e.resolveName(t.Class) + "::" + identifierValue(t.Const)
-	case *ast.ExprArray:
-		parts := make([]string, 0, len(t.Items))
-		for _, it := range t.Items {
-			item, ok := it.(*ast.ExprArrayItem)
-			if !ok || item.Val == nil {
-				continue
-			}
-			parts = append(parts, e.attrArgValue(item.Val))
-		}
-		return "[" + strings.Join(parts, ",") + "]"
-	default:
-		return ""
-	}
-}
-
-// unquotePHP strips surrounding single/double quotes from a PHP string
-// literal and unescapes the quote + backslash escapes that matter.
-func unquotePHP(s string) string {
-	if len(s) < 2 {
-		return s
-	}
-	q := s[0]
-	if (q == '\'' || q == '"') && s[len(s)-1] == q {
-		inner := s[1 : len(s)-1]
-		inner = strings.ReplaceAll(inner, `\`+string(q), string(q))
-		inner = strings.ReplaceAll(inner, `\\`, `\`)
-		return inner
-	}
-	return s
-}
-
-// visibility returns the visibility keyword from a modifier list, or
-// "public" when none is present (PHP's default).
-func visibility(mods []ast.Vertex) string {
-	for _, m := range mods {
-		switch v := strings.ToLower(identifierValue(m)); v {
-		case "public", "protected", "private":
-			return v
-		}
+	if flags&phpparser.ModifierProtected != 0 {
+		return "protected"
 	}
 	return "public"
 }
 
-func attributeNames(groups []ast.Vertex) []string {
+func modifiers(flags int) []string {
+	var out []string
+	for _, flag := range []int{phpparser.ModifierPublic, phpparser.ModifierProtected, phpparser.ModifierPrivate, phpparser.ModifierStatic, phpparser.ModifierAbstract, phpparser.ModifierFinal, phpparser.ModifierReadonly, phpparser.ModifierPublicSet, phpparser.ModifierProtectedSet, phpparser.ModifierPrivateSet} {
+		if flags&flag != 0 {
+			name, _ := phpparser.ModifierString(flag)
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func (e *extractor) attributes(groups []ast.Node) []Attr {
+	var out []Attr
+	for _, g := range groups {
+		if group, ok := g.(*ast.AttributeGroup); ok {
+			for _, n := range group.Attrs {
+				if a, ok := n.(*ast.Attribute); ok {
+					out = append(out, Attr{Name: e.resolveName(a.Name), Args: e.attrArgs(a.Args)})
+				}
+			}
+		}
+	}
+	return out
+}
+
+func (e *extractor) attrArgs(args any) []AttrArg {
+	var nodes []ast.Node
+	switch a := args.(type) {
+	case []ast.Node:
+		nodes = a
+	case []any:
+		for _, n := range a {
+			if node, ok := n.(ast.Node); ok {
+				nodes = append(nodes, node)
+			}
+		}
+	}
+	var out []AttrArg
+	for _, n := range nodes {
+		if a, ok := n.(*ast.Arg); ok {
+			out = append(out, AttrArg{Name: nameToString(a.Name), Value: e.attrArgValue(a.Value)})
+		}
+	}
+	return out
+}
+
+func (e *extractor) attrArgValue(n ast.Node) string {
+	switch t := n.(type) {
+	case *ast.ScalarString:
+		return t.Value
+	case *ast.ScalarInt:
+		if raw, ok := t.GetAttribute("rawValue", nil).(string); ok {
+			return raw
+		}
+		return strconv.Itoa(t.Value)
+	case *ast.ScalarFloat:
+		if raw, ok := t.GetAttribute("rawValue", nil).(string); ok {
+			return raw
+		}
+		return strconv.FormatFloat(t.Value, 'g', -1, 64)
+	case *ast.ExprConstFetch:
+		return nameToString(t.Name)
+	case *ast.ExprClassConstFetch:
+		return e.resolveName(t.Class) + "::" + nameToString(t.Name)
+	case *ast.ExprArray:
+		var parts []string
+		for _, n := range t.Items {
+			if item, ok := n.(*ast.ArrayItem); ok {
+				parts = append(parts, e.attrArgValue(item.Value))
+			}
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+	return ""
+}
+
+func attributeNames(groups []ast.Node) []string {
 	var out []string
 	for _, g := range groups {
-		ag, ok := g.(*ast.AttributeGroup)
-		if !ok {
-			continue
-		}
-		for _, a := range ag.Attrs {
-			attr, ok := a.(*ast.Attribute)
-			if !ok {
-				continue
-			}
-			if n := nameToString(attr.Name); n != "" {
-				out = append(out, n)
+		if group, ok := g.(*ast.AttributeGroup); ok {
+			for _, n := range group.Attrs {
+				if a, ok := n.(*ast.Attribute); ok {
+					out = append(out, nameToString(a.Name))
+				}
 			}
 		}
 	}
@@ -718,32 +589,17 @@ func joinFQCN(ns, name string) string {
 	return ns + `\` + name
 }
 
-// docSummary returns the first non-tag line of the docblock that
-// immediately precedes the given introducer token (the `class`,
-// `interface`, `trait`, or `enum` keyword). Returns "" if none.
-func docSummary(t *token.Token) string {
-	if t == nil {
+func docSummary(n ast.Node) string {
+	doc := n.DocComment()
+	if doc == nil {
 		return ""
 	}
-	var last *token.Token
-	for _, ft := range t.FreeFloating {
-		if ft.ID == token.T_DOC_COMMENT {
-			last = ft
+	for _, line := range strings.Split(doc.Text(), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(line, "/**"), "*/"), "*"))
+		if line != "" && !strings.HasPrefix(line, "@") {
+			return line
 		}
-	}
-	if last == nil {
-		return ""
-	}
-	for _, ln := range strings.Split(string(last.Value), "\n") {
-		ln = strings.TrimSpace(ln)
-		ln = strings.TrimPrefix(ln, "/**")
-		ln = strings.TrimSuffix(ln, "*/")
-		ln = strings.TrimPrefix(ln, "*")
-		ln = strings.TrimSpace(ln)
-		if ln == "" || strings.HasPrefix(ln, "@") {
-			continue
-		}
-		return ln
 	}
 	return ""
 }

@@ -18,7 +18,7 @@ on this SDK.
 
 | Package | What it does | Entry point |
 |---|---|---|
-| [`pkg/php`](../pkg/php) | Reads a PHP source file into a structured symbol: namespace, FQCN, modifiers, parent/implements, methods, constructor deps, docblock. VKCOM/php-parser backend, PHP 8.2–8.5. | `php.Read(path string) (*Symbol, error)` |
+| [`pkg/php`](../pkg/php) | PHP 8.5 type summaries, property hooks, DNF types and original-source slices. Native Go backend: dimasma0305/php-parser-go v0.1.1. | `php.Read(path string) (*Symbol, error)` |
 | [`pkg/walker`](../pkg/walker) | Walks a directory tree with include/exclude rules, streaming paths over a channel. | `walker.Files(opts Options) (<-chan string, <-chan error)` |
 | [`pkg/matcher`](../pkg/matcher) | Line-by-line search over a file — literal or regex, with word-boundary handling for non-ASCII. | `matcher.ScanFile(path string, opts Options) ([]Hit, []string, error)` |
 | [`pkg/codectx`](../pkg/codectx) | Finds the nearest enclosing function/class/block around a line, without a full AST. PHP, TS, Twig, INI. | `codectx.Enclosing(lines []string, idx int, ext string) string` |
@@ -52,6 +52,18 @@ Add it the normal way:
 go get github.com/sofia-ctx/sofia
 ```
 
+## PHP parsing and recovery
+
+`Read` and `ReadString` summarize the first named class/interface/trait/enum. Anonymous classes are skipped. Imported class names resolve through ordinary/grouped imports, aliases and namespace-relative names. Function/constant imports do not affect class names. `Properties` includes promoted constructor properties, including those in private constructors. Hook metadata records get/set, by-reference returns, modifiers, attributes, parameters and body kind (`abstract`, `expression`, `block`). `WriteVisibility` contains an explicitly declared setter visibility, not an inferred effective visibility. Modifiers use canonical order.
+
+Supported syntax is parsed directly, preserving DNF constituents and hook bodies in the internal AST. If the original source has syntax errors, `Read` may return a summary with `Partial: true`, original `Diagnostics` and `Recovery` equal to `partial_ast`, `normalized_ast` or `source`. Partial members can be incomplete. The source-only fallback has no members and unresolved parent/interface names. Legacy normalization is isolated in `pkg/php/normalize.go`, runs only after native parse errors, and remains available for future compatibility work. Even if a normalized copy parses cleanly, the result stays partial. It must never supply source-edit offsets.
+
+`ReadStrict` and `ReadStringStrict` reject every original-source parse error. `Slice` also requires clean original input and returns original bytes using AST positions. Selectors include a type/function/method, `Class::method`, `$property`, `Class::$property`, `$property::get` and `Class::$property::set`. Ambiguous selectors return an error and available names. These functions check parser syntax, not runtime behavior, type correctness or safe refactoring of references. The parser implementation and AST types stay outside the SDK contract.
+
+Compatibility note for release: summary fields are additive, but promoted properties now appear in `Properties`, `Partial` covers all recovered parses, and `Slice` rejects malformed or ambiguous input previously tolerated. Consumers relying on those behaviors need migration and the version treatment required by the policy below.
+
+Known backend limitation in v0.1.1: a heredoc/nowdoc closing label followed by a space before punctuation can be missed by the lexer. Such source may be reported as partial with indentation diagnostics, and strict reads/slices reject it. This is a parser limitation, not proof that the PHP source is invalid. The adapter does not suppress these diagnostics or silently rewrite the source. Upgrading the backend requires rerunning modern-syntax, recovery, byte-position and concurrent-reader tests.
+
 ## Semver policy
 
 `pkg/` is sofia's public API surface: breaking a signature, a type, or an
@@ -61,12 +73,6 @@ happen to have moved out of it in the past) can change shape between
 patch releases without notice. sofia itself keeps dogfooding `pkg/` — the
 `sf` binary imports these packages the same way an external consumer
 would — so drift gets caught before it ships.
-
-`php`'s visitor methods (`StmtClass`, `StmtFunction`, …) satisfy VKCOM's
-AST-visitor interface and are exported only because that interface
-requires it; they hang off unexported types, so nothing outside the
-package can reach them. They're API noise, not API — left as-is rather
-than hidden behind an internal wrapper.
 
 `walker.Files`'s two-channel shape (paths, errors) is a frozen contract:
 future changes add functionality without changing that signature.

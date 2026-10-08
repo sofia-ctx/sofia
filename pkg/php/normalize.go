@@ -2,12 +2,12 @@ package php
 
 import "regexp"
 
-// The VKCOM grammar tops out at PHP 8.1. These rewrites turn the PHP
-// 8.2–8.5 declaration syntax that the 8.1 parser rejects into an equivalent
-// 8.1-parseable form, preserving structure (names, signatures, members).
-// Each pattern matches only syntax that is *already invalid* in 8.1, so
-// valid ≤8.1 code is never touched — normalization is applied only as a
-// retry after a real parse failure (see ReadString).
+// Legacy compatibility transforms, retained as an isolated recovery mechanism.
+// The native parser handles PHP 8.5 without these rewrites. ReadString may try
+// them only after original-source parse errors. They are lossy (hook bodies,
+// DNF constituents, modifiers and offsets can change), and their output is
+// always Partial. ReadStringStrict and Slice never use them. Future syntax
+// workarounds belong here until the parser supports that syntax natively.
 var (
 	// PHP 8.3 typed class constants: `const TYPE NAME =` → `const NAME =`.
 	// Two tokens before `=` (type + name) distinguish it from the 8.1 form
@@ -46,7 +46,7 @@ var (
 )
 
 // normalizeModern returns a copy of src with modern PHP declaration syntax
-// downgraded to an 8.1-parseable equivalent. The source file is never
+// downgraded to a simpler, lossy form. The source file is never
 // modified — the result feeds the parser only.
 func normalizeModern(src []byte) []byte {
 	src = reAsymPair.ReplaceAll(src, []byte("$1"))

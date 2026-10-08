@@ -32,6 +32,9 @@ func effectiveSurface(root *php.Symbol, path string) (methods []methodVia, notes
 
 	var walk func(sym *php.Symbol, via string, isRoot bool)
 	walk = func(sym *php.Symbol, via string, isRoot bool) {
+		if sym.Partial {
+			notes = append(notes, sym.FQCN+" (partial parse; public surface may be incomplete)")
+		}
 		for _, m := range sym.Methods { // php.Symbol.Methods is public-only already
 			if seen[m.Name] {
 				continue

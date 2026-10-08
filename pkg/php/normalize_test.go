@@ -2,10 +2,8 @@ package php
 
 import "testing"
 
-// TestNormalizeModern checks that PHP 8.2–8.5 syntax which the VKCOM 8.1
-// grammar rejects is recovered (via normalize + tolerant extraction) so the
-// class structure is still produced.
-func TestNormalizeModern(t *testing.T) {
+// Former normalization cases must now succeed directly in the native parser.
+func TestModernDeclarationsNeedNoRecovery(t *testing.T) {
 	cases := map[string]string{
 		"typed const (8.3)":        `<?php class E { const string FOO = "x"; public function f(): void {} }`,
 		"asymmetric vis (8.4)":     `<?php class H { public private(set) int $x = 0; public function f(): void {} }`,
@@ -18,7 +16,7 @@ func TestNormalizeModern(t *testing.T) {
 		"pipe operator (8.5)":      `<?php class U { public function run(string $s): string { return $s |> trim(...) |> strtoupper(...); } public function f(): void {} }`,
 	}
 	for name, src := range cases {
-		sym, err := ReadString(src, name+".php")
+		sym, err := ReadStringStrict(src, name+".php")
 		if err != nil {
 			t.Errorf("%s: ReadString failed: %v", name, err)
 			continue
@@ -35,8 +33,7 @@ func TestNormalizeModern(t *testing.T) {
 	}
 }
 
-// TestValidPHPUntouched confirms normalization is a no-op on valid ≤8.1
-// code: a normal class still parses with all its members.
+// Older syntax continues to parse with all its members.
 func TestValidPHPUntouched(t *testing.T) {
 	src := `<?php
 namespace App;
@@ -57,10 +54,7 @@ class Plain {
 	}
 }
 
-// TestPropertyHookRecoversMembers confirms a hooked property keeps its
-// name/type/visibility and, crucially, that members declared *after* the hook
-// (ctor, methods) are still recovered — the whole point of the better
-// retry-acceptance rule.
+// Members declared after a hooked property remain visible.
 func TestPropertyHookRecoversMembers(t *testing.T) {
 	src := `<?php
 namespace App;
@@ -79,7 +73,7 @@ class Account {
 		t.Fatalf("ReadString: %v", err)
 	}
 	if sym.Partial {
-		t.Error("expected AST recovery, got partial")
+		t.Error("expected native AST, got partial")
 	}
 	prop := propByName(sym, "password")
 	if prop == nil || prop.Type != "string" || prop.Visibility != "public" {
@@ -96,8 +90,7 @@ class Account {
 	}
 }
 
-// TestHookBodyBraceInString checks the brace matcher is string-aware: a `}`
-// inside a string literal in the hook body must not end the block early.
+// A brace inside a hook string must not end the property early.
 func TestHookBodyBraceInString(t *testing.T) {
 	src := `<?php class B { public string $x { get => '}'; } public function f(): void {} }`
 	sym, err := ReadString(src, "B.php")
@@ -121,8 +114,7 @@ func TestMethodBodyNotMangled(t *testing.T) {
 // TestExtractPartial confirms degrade-to-partial yields a skeleton (kind,
 // FQCN, extends) for a file too broken for the AST, instead of a hard error.
 func TestExtractPartial(t *testing.T) {
-	// `;;;` after the class head is a hard syntax error VKCOM can't recover
-	// into a declaration, forcing the regex fallback.
+	// Exercise the source-only fallback independently of parser recovery.
 	src := []byte(`<?php
 namespace App\Bad;
 class Foo extends Bar implements Baz {

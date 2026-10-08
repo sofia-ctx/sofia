@@ -1,8 +1,7 @@
 // Package phpcode is the PHP backend for `sf code`: a structural summary of a
 // PHP file (namespace, class/interface/trait/enum, extends/implements,
 // attributes, enum cases, constructor deps, properties, method signatures) and
-// single-method slicing. It reuses the shared VKCOM-based reader
-// (internal/common/php), which normalizes PHP 8.2–8.5 to the 8.1 grammar.
+// source slicing. It uses pkg/php's native PHP 8.5 reader.
 package phpcode
 
 import (
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sofia-ctx/sofia/pkg/php"
@@ -76,12 +76,14 @@ func Brief(s *php.Symbol) {
 
 // phpProperties returns the properties, filtered to public when exported.
 func phpProperties(s *php.Symbol, exported bool) []php.Property {
-	if !exported {
-		return s.Properties
-	}
 	out := make([]php.Property, 0, len(s.Properties))
 	for _, p := range s.Properties {
-		if p.Visibility == "public" {
+		// Ordinary promoted dependencies already appear in ctor. Keep modern
+		// property detail here and all properties in the structural JSON.
+		if p.Promoted && len(p.Hooks) == 0 && p.WriteVisibility == "" && len(p.Attributes) == 0 && !slices.Contains(p.Modifiers, "readonly") && !slices.Contains(p.Modifiers, "final") && len(s.CtorDeps) > 0 {
+			continue
+		}
+		if !exported || p.Visibility == "public" {
 			out = append(out, p)
 		}
 	}
@@ -97,6 +99,10 @@ func renderTOON(w io.Writer, s *php.Symbol, exported, apiMode bool, surface []me
 	}
 	fmt.Fprintf(w, "kind: %s\n", s.Kind)
 	fmt.Fprintf(w, "name: %s\n", lastSeg(s.FQCN))
+	if s.Partial {
+		fmt.Fprintf(w, "partial: true\nrecovery: %s\n", toon.Scalar(s.Recovery))
+		fmt.Fprintf(w, "diagnostics: %s\n", toon.JoinList(s.Diagnostics))
+	}
 	if len(s.Modifiers) > 0 {
 		fmt.Fprintf(w, "modifiers: %s\n", strings.Join(s.Modifiers, " "))
 	}
@@ -138,7 +144,12 @@ func renderTOON(w io.Writer, s *php.Symbol, exported, apiMode bool, surface []me
 		fmt.Fprintf(w, "properties[%d]{vis,name,type,attrs}:\n", len(props))
 		for _, p := range props {
 			fmt.Fprintf(w, "%s%s,%s,%s,%s\n", toon.Indent,
-				p.Visibility, toon.Scalar(p.Name), toon.Scalar(p.Type), toon.Scalar(phpAttrs(p.Attributes)))
+				toon.Scalar(propertyModifiers(p)), toon.Scalar(p.Name), toon.Scalar(p.Type), toon.Scalar(phpAttrs(p.Attributes)))
+		}
+		for _, p := range props {
+			if len(p.Hooks) > 0 {
+				fmt.Fprintf(w, "hooks($%s): %s\n", p.Name, toon.Scalar(propertyHooks(p)))
+			}
 		}
 	}
 
@@ -190,6 +201,12 @@ func renderMarkdown(w io.Writer, s *php.Symbol, exported, apiMode bool, surface 
 		fmt.Fprintf(w, " — `%s`", s.Namespace)
 	}
 	fmt.Fprint(w, "\n\n")
+	if s.Partial {
+		fmt.Fprintf(w, "- **partial**: %s, members may be incomplete\n", s.Recovery)
+		for _, d := range s.Diagnostics {
+			fmt.Fprintf(w, "- **parse error**: %s\n", d)
+		}
+	}
 	if s.Extends != "" {
 		fmt.Fprintf(w, "- **extends**: `%s`\n", s.Extends)
 	}
@@ -218,7 +235,11 @@ func renderMarkdown(w io.Writer, s *php.Symbol, exported, apiMode bool, surface 
 	if props := phpProperties(s, exported); len(props) > 0 {
 		fmt.Fprintln(w, "\n## properties")
 		for _, p := range props {
-			fmt.Fprintf(w, "- `%s %s $%s`%s\n", p.Visibility, p.Type, p.Name, phpAttrSuffix(p.Attributes))
+			fmt.Fprintf(w, "- `%s %s $%s`%s", propertyModifiers(p), p.Type, p.Name, phpAttrSuffix(p.Attributes))
+			if len(p.Hooks) > 0 {
+				fmt.Fprintf(w, " {%s}", propertyHooks(p))
+			}
+			fmt.Fprintln(w)
 		}
 	}
 	if apiMode {
@@ -334,4 +355,32 @@ func enumIsBacked(cases []php.EnumCase) bool {
 		}
 	}
 	return false
+}
+
+func propertyModifiers(p php.Property) string {
+	if len(p.Modifiers) > 0 {
+		return strings.Join(p.Modifiers, " ")
+	}
+	return p.Visibility
+}
+
+func propertyHooks(p php.Property) string {
+	var out []string
+	for _, h := range p.Hooks {
+		name := h.Name
+		if h.ByRef {
+			name = "&" + name
+		}
+		if len(h.Modifiers) > 0 {
+			name = strings.Join(h.Modifiers, " ") + " " + name
+		}
+		if len(h.Params) > 0 {
+			name += phpSig(php.Method{Params: h.Params})
+		}
+		if h.BodyKind == "abstract" {
+			name += ";"
+		}
+		out = append(out, name)
+	}
+	return strings.Join(out, ", ")
 }
